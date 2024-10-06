@@ -1,0 +1,25 @@
+name: yolov5-zoe-env
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.9.7  # Aligning Python version with Zoe
+  - numpy=1.24.1  # Matching numpy version from Zoe
+  - opencv=4.6.0  # OpenCV version from Zoe
+  - pillow>=7.1.2  # Same as YOLO, no conflict
+  - pytorch=1.13.1  # PyTorch version from Zoe (latest, includes CUDA support)
+  - torchvision=0.14.1  # Torchvision version from Zoe (compatible with PyTorch 1.13.1)
+  - torchaudio=0.13.1  # Included from Zoe for consistency
+  - scipy=1.10.0  # Matching Zoe environment
+  - pandas>=1.2.0  # Keeping YOLO version as it’s not specified in Zoe
+  - pip=22.3.1  # Align with Zoe
+  - matplotlib=3.6.2  # Matching Zoe environment
+  - matplotlib-base=3.6.2  # Matching Zoe environment
+  - h5py=3.7.0  # From Zoe, necessary if you use HDF5 data
+  - hdf5=1.12.2  # From Zoe, ensures compatibility with h5py
+  - pip:
+      - huggingface-hub==0.11.1  # From Zoe, no conflict with YOLO
+      - timm==0.6.12  # From Zoe, Transformer models, no conflict
+      - tqdm==4.64.1  # From Zoe, progress bar, no conflict
+      - wandb==0.13.9  # From Zoe, experiment tracking, no conflict
