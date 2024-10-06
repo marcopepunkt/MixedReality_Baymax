@@ -1,0 +1,14 @@
+name: yolov5-env
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.8
+  - numpy>=1.18.5
+  - opencv
+  - pillow>=7.1.2
+  - pytorch>=1.7.0
+  - torchvision>=0.8.1
+  - pandas>=1.2.0
+  - requests
+

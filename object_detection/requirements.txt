@@ -1,0 +1,13 @@
+# Python version 3.8 and above
+python>=3.8
+
+# Required packages and their versions
+numpy>=1.18.5
+opencv-python
+pillow>=7.1.2
+torch>=1.7.0
+torchvision>=0.8.1
+pandas>=1.2.0
+requests
+
+
