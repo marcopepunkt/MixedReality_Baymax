@@ -19,7 +19,7 @@ import hl2ss_3dcv
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.1.7'
+host = '169.254.174.24'
 
 # Calibration path (must exist but can be empty)
 calibration_path = '../calibration'
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     listener.start()
 
     # Start PV Subsystem ------------------------------------------------------
-    hl2ss_lnm.start_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO)
+    hl2ss_lnm.start_subsystem_pv(host, hl2ss.StreamPort.PERSONAL_VIDEO,shared=True)
 
     # Get RM Depth Long Throw calibration -------------------------------------
     # Calibration data will be downloaded if it's not in the calibration folder
