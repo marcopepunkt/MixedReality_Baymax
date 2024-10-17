@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Name of the conda environment
-ENV_NAME="hl2ss-env"
+ENV_NAME="hl2ss"
 
 # Check if the environment already exists
 if conda env list | grep -q "$ENV_NAME"; then

@@ -3,7 +3,7 @@ channels:
   - defaults
   - conda-forge
 dependencies:
-  - python=3.8
+  - python=3.10
   - numpy>=1.18.5
   - opencv
   - pillow>=7.1.2
@@ -11,4 +11,7 @@ dependencies:
   - torchvision>=0.8.1
   - pandas>=1.2.0
   - requests
-
+  - pip:
+      - pynput
+      - av
+      - open3d

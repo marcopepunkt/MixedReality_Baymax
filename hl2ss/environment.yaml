@@ -1,10 +1,11 @@
-name: hl2ss-env
+
+name: hl2ss
 channels:
   - conda-forge
   - pytorch
   - defaults
 dependencies:
-  - python=3.8
+  - python==3.8
   - numpy
   - portaudio
   - pytorch
@@ -13,8 +14,6 @@ dependencies:
   - pip:
       - opencv-python
       - open3d==0.13.0
-      - av
       # Optional packages
       - pynput
       - PyAudio
-
