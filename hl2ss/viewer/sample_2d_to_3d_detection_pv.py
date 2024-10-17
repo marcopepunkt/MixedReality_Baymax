@@ -20,6 +20,7 @@ import torch
 from PIL import Image
 import threading
 
+import real_time.detect
 
 # Settings --------------------------------------------------------------------
 
@@ -110,12 +111,12 @@ if __name__ == '__main__':
     sink_pv.get_attach_response()
     sink_depth.get_attach_response()
 
-    # Init Detector -----------------------------------------------------------
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
-    target_classes = ['person', 'couch']
-    inference_refresh_rate = 20
-    frame_count = 0
-    detection_result = None
+    # # Init Detector -----------------------------------------------------------
+    # model = torch.hub.load('ultralytics/yolov5', 'yolov5s')
+    # target_classes = ['person', 'couch']
+    # inference_refresh_rate = 20
+    # frame_count = 0
+    # detection_result = None
 
     # Main loop ---------------------------------------------------------------
     while (enable):
@@ -128,7 +129,7 @@ if __name__ == '__main__':
         if ((data_pv is None) or (not hl2ss.is_valid_pose(data_pv.pose))):
             continue
 
-        frame_count += 1
+        #frame_count += 1
 
         # Update PV intrinsics ------------------------------------------------
         # PV intrinsics may change between frames due to autofocus
@@ -180,16 +181,17 @@ if __name__ == '__main__':
 
         # Visualize results ---------------------------------------------------
         #detections = model.show_result(frame, result, score_thr=score_thr, mask_color=PALETTE)
-        if frame_count % inference_refresh_rate == 0 :
-            # Inference -----------------------------------------------------------
-            if frame is not None:
-                image_pil = Image.fromarray(frame)
-                image_cv2 = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
+        # if frame_count % inference_refresh_rate == 0 :
+        #     # Inference -----------------------------------------------------------
+        #     if frame is not None:
+        #         image_pil = Image.fromarray(frame)
+        #         image_cv2 = cv2.cvtColor(np.array(image_pil), cv2.COLOR_RGB2BGR)
 
-                detected_objects, detection_result, class_names = run_yolo_classification(image_cv2.copy(), image_pil)
-        
-        if detection_result is not None:
-            cv2.imshow("YOLOv5 Object Detection", detection_result)
+        #         detected_objects, detection_result, class_names = run_yolo_classification(image_cv2.copy(), image_pil)
+
+        if frame is not None:
+            detection_result = real_time.detect.get_object_detection_frame(frame)
+            cv2.imshow("Object Detection", detection_result)
         
 
         main_pcd.points = o3d.utility.Vector3dVector(points)
