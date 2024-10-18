@@ -353,7 +353,9 @@ def run_object_detection(source=0, flip=False, use_popup=True, skip_first_frames
 
 image_path = '../rgb.png'
 frame = cv2.imread(image_path)
-out_frame =get_object_detection_frame(frame)
+#out_frame =get_object_detection_frame(frame)
 
-cv2.imshow(winname="test",mat=out_frame)
-cv2.waitKey()
+run_object_detection()
+
+#cv2.imshow(winname="test",mat=out_frame)
+#cv2.waitKey()

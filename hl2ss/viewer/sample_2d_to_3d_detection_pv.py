@@ -47,22 +47,22 @@ wait_time = 1
 
 #------------------------------------------------------------------------------
 
-def run_yolo_classification(image_cv2, img_pil):
-    results = model(img_pil)
-    detected_objects = results.xyxy[0].numpy()
+# def run_yolo_classification(image_cv2, img_pil):
+#     results = model(img_pil)
+#     detected_objects = results.xyxy[0].numpy()
     
-    # Annotate image with bounding boxes and labels
-    for obj in detected_objects:
-        x1, y1, x2, y2, conf, class_id = map(int, obj[:6])
-        label = results.names[class_id]
+#     # Annotate image with bounding boxes and labels
+#     for obj in detected_objects:
+#         x1, y1, x2, y2, conf, class_id = map(int, obj[:6])
+#         label = results.names[class_id]
         
-        if label in target_classes:
-            confidence = obj[4]
-            cv2.rectangle(image_cv2, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            label_text = f'{label} {confidence:.2f}'
-            cv2.putText(image_cv2, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+#         if label in target_classes:
+#             confidence = obj[4]
+#             cv2.rectangle(image_cv2, (x1, y1), (x2, y2), (0, 255, 0), 2)
+#             label_text = f'{label} {confidence:.2f}'
+#             cv2.putText(image_cv2, label_text, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
-    return detected_objects, image_cv2, results.names
+#     return detected_objects, image_cv2, results.names
 #------------------------------------------------------------------------------
 
 if __name__ == '__main__':
