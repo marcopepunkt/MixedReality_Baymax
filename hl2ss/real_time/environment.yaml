@@ -17,4 +17,6 @@ dependencies:
       - pynput
       - av
       - open3d
+      - tqdm
+      - opencv-contrib-python
 
