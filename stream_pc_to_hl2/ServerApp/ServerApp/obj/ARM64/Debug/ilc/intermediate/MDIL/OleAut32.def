@@ -1,0 +1,3 @@
+LIBRARY OleAut32
+EXPORTS
+   SysFreeString

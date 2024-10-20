@@ -1,0 +1,15 @@
+LIBRARY advapi32.dll
+EXPORTS
+   OpenProcessToken
+   ImpersonateLoggedOnUser
+   LsaLookupNames2
+   LsaFreeMemory
+   LsaClose
+   GetTokenInformation
+
+   DuplicateTokenEx
+   RevertToSelf
+   OpenThreadToken
+   LsaLookupSids
+   LsaNtStatusToWinError
+   LsaOpenPolicy

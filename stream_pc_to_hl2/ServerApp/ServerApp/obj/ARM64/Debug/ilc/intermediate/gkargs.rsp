@@ -1,0 +1,7 @@
+﻿"C:\Users\defne\Desktop\ServerApp\ServerApp\obj\ARM64\Debug\ilc\in\ServerApp.exe"
+/Lib:"C:\Users\defne\Desktop\ServerApp\ServerApp\obj\ARM64\Debug\ilc\in"
+/Lib:"C:\Program Files (x86)\Microsoft SDKs\UWPNuGetPackages\runtime.win10-arm64.microsoft.net.native.compiler\2.2.12-rel-31116-00\tools\ARM64\ilc\lib\Private"
+/WinMD:"C:\Users\defne\Desktop\ServerApp\ServerApp\obj\ARM64\Debug\ilc\in\WinMetadata\Windows.winmd"
+/VSTelemetrySessionSettings:"{\"TelemetryLevel\":null,\"IsOptedIn\":true,\"HostName\":\"Dev14\",\"AppInsightsInstrumentationKey\":\"f144292e-e3b2-4011-ac90-20e5c03fbce5\",\"AsimovInstrumentationKey\":\"AIF-312cbd79-9dbb-4c48-a7da-3cc2a931cb70\",\"CollectorApiKey\":\"f3e86b4023cc43f0be495508d51f588a-f70d0e59-0fb0-4473-9f19-b4024cc340be-7296\",\"AppId\":1001,\"UserId\":\"a6def5d6-140f-435c-8a69-b2207351e5c8\",\"Id\":\"01a43a2d-d8c2-4bd6-9965-c469b343463a\",\"ProcessStartTime\":638650512850828564,\"SkuName\":\"VS_Community\",\"VSExeVersion\":\"17.11.35312.102\",\"BucketFiltersToEnableWatsonForFaults\":[],\"BucketFiltersToAddDumpsToFaults\":[]}"
+/RdXmlPath:"C:\Program Files (x86)\Microsoft SDKs\UWPNuGetPackages\microsoft.net.native.compiler\2.2.12-rel-31116-00\tools\LibraryXML"
+/RunOnlyPreDR
