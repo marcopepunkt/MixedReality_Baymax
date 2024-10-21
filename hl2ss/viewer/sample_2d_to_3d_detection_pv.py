@@ -17,10 +17,20 @@ import hl2ss_lnm
 import hl2ss_mp
 import hl2ss_3dcv
 import torch
+import sys
+import os
 from PIL import Image
 import threading
-
+# import real_time.detect
+# getting the name of the directory where the this file is present.
+current = os.path.dirname(os.path.realpath(__file__))
+# Getting the parent directory name where the current directory is present.
+parent = os.path.dirname(current)
+# adding the parent directory to 
+# the sys.path.
+sys.path.append(parent)
 import real_time.detect
+
 
 # Settings --------------------------------------------------------------------
 
@@ -28,7 +38,7 @@ import real_time.detect
 host = '169.254.174.24'
 
 # Calibration path (must exist but can be empty)
-calibration_path = 'calibration/'
+calibration_path = r"C:\Users\defne\Desktop\MixedReality_Baymax\hl2ss\calibration"
 
 # Camera parameters
 pv_width = 640
