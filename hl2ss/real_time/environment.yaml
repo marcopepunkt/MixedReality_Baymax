@@ -19,4 +19,6 @@ dependencies:
       - open3d
       - tqdm
       - opencv-contrib-python
+      - datasets
+      - nncf
 
