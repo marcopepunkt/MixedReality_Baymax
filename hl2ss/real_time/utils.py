@@ -752,8 +752,9 @@ def postprocess_depth(model_output, image_size):
     metric_depth = cv2.resize(depth, dsize=(w, h), interpolation=cv2.INTER_AREA)
 
     depth = cv2.normalize(metric_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
-    depth = cv2.applyColorMap(depth, colormap=cv2.COLORMAP_INFERNO)
-    return depth, metric_depth
+    inverted_depth = cv2.bitwise_not(depth)
+    inverted_depth = cv2.applyColorMap(inverted_depth, colormap=cv2.COLORMAP_INFERNO)
+    return inverted_depth, metric_depth
 
 
 def download_image(url):
