@@ -1,9 +1,4 @@
-#------------------------------------------------------------------------------
-# 3D segmentation from 2D segmentation using MMDetection. Segmentation is 
-# performed on PV video frames. Then, 3D points from RM Depth Long Throw are
-# reprojected to the video frames to determine their class.
-# Press space to stop.
-#------------------------------------------------------------------------------
+
 
 from pynput import keyboard
 
@@ -11,7 +6,6 @@ import multiprocessing as mp
 import numpy as np
 import cv2
 import open3d as o3d
-import hl2ss_imshow
 import hl2ss
 import hl2ss_lnm
 import hl2ss_mp
@@ -21,15 +15,8 @@ import sys
 import os
 from PIL import Image
 import threading
-# import real_time.detect
-# getting the name of the directory where the this file is present.
-current = os.path.dirname(os.path.realpath(__file__))
-# Getting the parent directory name where the current directory is present.
-parent = os.path.dirname(current)
-# adding the parent directory to 
-# the sys.path.
-sys.path.append(parent)
-import real_time.detect
+
+from real_time import detect
 
 
 # Settings --------------------------------------------------------------------
@@ -38,7 +25,7 @@ import real_time.detect
 host = '169.254.174.24'
 
 # Calibration path (must exist but can be empty)
-calibration_path = r"C:\Users\defne\Desktop\MixedReality_Baymax\hl2ss\calibration"
+calibration_path = "../calibration"
 
 # Camera parameters
 pv_width = 640
@@ -55,6 +42,69 @@ device = 'cpu' #'cuda:0'
 score_thr = 0.3
 wait_time = 1
 
+visualize = True
+
+
+# -----------------------------------------------------------------------------
+def adjust_camera_calibration(foc_length,p_point):
+
+    pv_intrinsics = hl2ss.create_pv_intrinsics(foc_length,p_point)
+    pv_extrinsics = np.eye(4, 4, dtype=np.float32)
+    return hl2ss_3dcv.pv_fix_calibration(pv_intrinsics, pv_extrinsics)
+
+def update_visualization(vis_inference_frame, points, vis, main_pcd, first_geometry):
+
+    cv2.imshow("Object Detection", vis_inference_frame)
+        
+    main_pcd.points = o3d.utility.Vector3dVector(points)
+
+    if (first_geometry):
+        vis.add_geometry(main_pcd)
+        first_geometry = False
+    else:
+        vis.update_geometry(main_pcd)
+
+    vis.poll_events()
+    vis.update_renderer()
+
+def frame_processing_manager(data_pv, data_depth):
+        
+    # Update PV intrinsics ------------------------------------------------
+    # PV intrinsics may change between frames due to autofocus
+    pv_intrinsics, pv_extrinsics = adjust_camera_calibration(data_pv.payload.focal_length, data_pv.payload.principal_point)
+
+    # Preprocess frames ---------------------------------------------------
+    frame = data_pv.payload.image
+    depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
+    depth[depth > max_depth] = 0
+
+    # Build pointcloud ----------------------------------------------------
+    points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)
+    depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
+    points = hl2ss_3dcv.transform(points, depth_to_world)
+
+    # Project pointcloud image --------------------------------------------
+    world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
+    pixels = hl2ss_3dcv.project(points, world_to_image)
+    
+    map_u = pixels[:, :, 0]
+    map_v = pixels[:, :, 1]
+
+    points = hl2ss_3dcv.block_to_list(points)
+    # Remove invalid points -----------------------------------------------
+    select = depth.reshape((-1,)) > 0
+    points = points[select, :]
+
+    if frame is not None:
+        vis_inference_frame, boxes, obj_depths, inference_depth = detect.get_detection_and_depth_frame(frame)
+
+    # Locate Obstacles Monocular & Depth sensor - fusion of the two will be tricky...
+
+    # Update Environement
+
+    
+    return vis_inference_frame, points
+    
 
 if __name__ == '__main__':
     # Keyboard events ---------------------------------------------------------
@@ -113,61 +163,11 @@ if __name__ == '__main__':
         if ((data_pv is None) or (not hl2ss.is_valid_pose(data_pv.pose))):
             continue
 
+        vis_inference_frame, points = frame_processing_manager(data_pv,data_depth)
 
-        # Update PV intrinsics ------------------------------------------------
-        # PV intrinsics may change between frames due to autofocus
-        pv_intrinsics = hl2ss.create_pv_intrinsics(data_pv.payload.focal_length, data_pv.payload.principal_point)
-        pv_extrinsics = np.eye(4, 4, dtype=np.float32)
-        pv_intrinsics, pv_extrinsics = hl2ss_3dcv.pv_fix_calibration(pv_intrinsics, pv_extrinsics)
+        if visualize:
+            update_visualization(vis_inference_frame, points, vis, main_pcd, first_geometry)
 
-        # Preprocess frames ---------------------------------------------------
-        frame = data_pv.payload.image
-        depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
-        depth[depth > max_depth] = 0
-
-        #mask = result.pred_instances.labels.detach().cpu().numpy()
-
-        # Build pointcloud ----------------------------------------------------
-        points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)
-        depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
-        points = hl2ss_3dcv.transform(points, depth_to_world)
-
-        # Project pointcloud image --------------------------------------------
-        world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
-        pixels = hl2ss_3dcv.project(points, world_to_image)
-        
-        map_u = pixels[:, :, 0]
-        map_v = pixels[:, :, 1]
-
-        # Get 3D points labels and colors -------------------------------------
-        rgb = cv2.remap(frame, map_u, map_v, cv2.INTER_NEAREST)
-
-        points = hl2ss_3dcv.block_to_list(points)
-        rgb = hl2ss_3dcv.block_to_list(rgb)
-
-
-        # Remove invalid points -----------------------------------------------
-        select = depth.reshape((-1,)) > 0
-
-        points = points[select, :]
-        #colors = colors[select, :] / 255
-
-        if frame is not None:
-            detection_result = real_time.detect.get_object_detection_frame(frame)
-            cv2.imshow("Object Detection", detection_result)
-        
-
-        main_pcd.points = o3d.utility.Vector3dVector(points)
-        #main_pcd.colors = o3d.utility.Vector3dVector(rgb)
-
-        if (first_geometry):
-            vis.add_geometry(main_pcd)
-            first_geometry = False
-        else:
-            vis.update_geometry(main_pcd)
-
-        vis.poll_events()
-        vis.update_renderer()
 
     # Stop PV and RM Depth Long Throw streams ---------------------------------
     sink_pv.detach()

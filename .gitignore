@@ -1,0 +1,5 @@
+**/model/
+**/checkpoints/
+**/models_ov/
+**/__pycache__/
+.DS_Store

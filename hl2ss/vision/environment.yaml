@@ -1,4 +1,4 @@
-name: openvino
+name: vision
 channels:
   - defaults
   - conda-forge
