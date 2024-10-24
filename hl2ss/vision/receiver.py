@@ -16,7 +16,9 @@ import os
 from PIL import Image
 import threading
 
-from real_time import detect
+from vision.real_time import detect, utils
+
+from scene.env import *
 
 
 # Settings --------------------------------------------------------------------
@@ -36,7 +38,7 @@ pv_framerate = 15
 buffer_length = 5
 
 # Maximum depth, points beyond are removed
-max_depth = 2
+max_sensor_depth = 5
 
 device = 'cpu' #'cuda:0'
 score_thr = 0.3
@@ -67,7 +69,7 @@ def update_visualization(vis_inference_frame, points, vis, main_pcd, first_geome
     vis.poll_events()
     vis.update_renderer()
 
-def frame_processing_manager(data_pv, data_depth):
+def frame_processing_manager(data_pv, data_depth,scale,xy1):
         
     # Update PV intrinsics ------------------------------------------------
     # PV intrinsics may change between frames due to autofocus
@@ -75,8 +77,22 @@ def frame_processing_manager(data_pv, data_depth):
 
     # Preprocess frames ---------------------------------------------------
     frame = data_pv.payload.image
-    depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
-    depth[depth > max_depth] = 0
+    sensor_depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
+    sensor_depth[sensor_depth > max_sensor_depth] = 0
+
+    if frame is not None:
+        vis_depth_frame, boxes, monocular_depth = detect.get_detection_and_depth_frame(frame)
+    
+    # Blend sensor depth with monocular depth using linear regression
+    depth, _, _ = utils.blend_depths_metric(sensor_depth,monocular_depth,num_samples=1000)
+
+    # Estimate local postion of detected objects on blended depth map using a median filter
+    poses = detect.estimate_box_poses(depth,boxes)
+
+    # Draw boxes on the visual depth frame
+    vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
+
+    # To do: Get world postion of detected poses
 
     # Build pointcloud ----------------------------------------------------
     points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)
@@ -95,15 +111,13 @@ def frame_processing_manager(data_pv, data_depth):
     select = depth.reshape((-1,)) > 0
     points = points[select, :]
 
-    if frame is not None:
-        vis_inference_frame, boxes, obj_depths, inference_depth = detect.get_detection_and_depth_frame(frame)
 
     # Locate Obstacles Monocular & Depth sensor - fusion of the two will be tricky...
 
     # Update Environement
 
     
-    return vis_inference_frame, points
+    return vis_depth_frame, points
     
 
 if __name__ == '__main__':
@@ -163,7 +177,7 @@ if __name__ == '__main__':
         if ((data_pv is None) or (not hl2ss.is_valid_pose(data_pv.pose))):
             continue
 
-        vis_inference_frame, points = frame_processing_manager(data_pv,data_depth)
+        vis_inference_frame, points = frame_processing_manager(data_pv,data_depth,scale,xy1)
 
         if visualize:
             update_visualization(vis_inference_frame, points, vis, main_pcd, first_geometry)

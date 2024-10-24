@@ -756,6 +756,45 @@ def postprocess_depth(model_output, image_size):
     inverted_depth = cv2.applyColorMap(inverted_depth, colormap=cv2.COLORMAP_INFERNO)
     return inverted_depth, metric_depth
 
+def blend_depths_metric(sensor_depth, monocular_depth, num_samples=1000):
+
+    """
+    Function that blends sensor_depth with monocular depth
+    """
+    # Step 1: Reshape monocular_depth to match the shape of sensor_depth
+    monocular_depth_resized = np.resize(monocular_depth, sensor_depth.shape)
+    
+    # Step 2: Flatten both depth arrays for easier indexing
+    sensor_depth_flat = sensor_depth.flatten()
+    monocular_depth_flat = monocular_depth_resized.flatten()
+    
+    # Step 3: Identify valid pixels where both sensor and monocular depth values are greater than 0
+    valid_pixels = np.where((sensor_depth_flat > 0) & (monocular_depth_flat > 0))[0]
+    
+    # Step 4: Randomly sample a set of valid pixels
+    if len(valid_pixels) < num_samples:
+        num_samples = len(valid_pixels)  # In case the number of valid pixels is less than num_samples
+    sampled_pixels = np.random.choice(valid_pixels, num_samples, replace=False)
+    
+    # Extract the depth values at the sampled valid pixels
+    sensor_depth_samples = sensor_depth_flat[sampled_pixels]
+    monocular_depth_samples = monocular_depth_flat[sampled_pixels]
+    
+    # Step 5: Find coefficient K to minimize the squared difference
+    K_coeff = np.sum(sensor_depth_samples * monocular_depth_samples) / np.sum(monocular_depth_samples**2)
+    
+    adjusted_monocular_depth = monocular_depth_resized * K_coeff
+    
+    predicted_depth = monocular_depth_samples * K
+    residual_sum_of_squares = np.sum((sensor_depth_samples - predicted_depth) ** 2)
+    total_sum_of_squares = np.sum((sensor_depth_samples - np.mean(sensor_depth_samples)) ** 2)
+    r_squared = 1 - (residual_sum_of_squares / total_sum_of_squares)
+    
+    blended_depth = np.where(sensor_depth == 0, adjusted_monocular_depth, sensor_depth)
+    blended_depth_resized = np.resize(blended_depth, monocular_depth.shape)
+    
+    return blended_depth_resized, K_coeff, r_squared
+
 
 def download_image(url):
     """
