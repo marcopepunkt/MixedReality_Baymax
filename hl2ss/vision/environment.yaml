@@ -1,7 +1,6 @@
 name: vision
 channels:
   - defaults
-  - conda-forge
 dependencies:
   - python=3.10
   - numpy>=1.18.5

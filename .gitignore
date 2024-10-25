@@ -1,4 +1,5 @@
 **/model/
+**/.vs/
 **/checkpoints/
 **/models_ov/
 **/__pycache__/
