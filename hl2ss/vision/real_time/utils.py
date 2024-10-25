@@ -752,15 +752,38 @@ def postprocess_depth(model_output, image_size):
     metric_depth = cv2.resize(depth, dsize=(w, h), interpolation=cv2.INTER_AREA)
 
     depth = cv2.normalize(metric_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
-    inverted_depth = cv2.bitwise_not(depth)
-    inverted_depth = cv2.applyColorMap(inverted_depth, colormap=cv2.COLORMAP_INFERNO)
-    return inverted_depth, metric_depth
+    vis_depth = cv2.applyColorMap(depth, colormap=cv2.COLORMAP_INFERNO)
+    return vis_depth, metric_depth
 
-def blend_depths_metric(sensor_depth, monocular_depth, num_samples=1000):
+def blend_depths_metric(sensor_depth, monocular_depth, boxes, num_samples=1000):
 
     """
     Function that blends sensor_depth with monocular depth
     """
+
+    # Resize bounding boxes
+
+    mw, mh = monocular_depth.shape
+    sw, sh = sensor_depth.shape[:2]
+
+    scale_x = sw / mw
+    scale_y = sh / mh
+
+    boxes_resized = []
+
+    for label, score, box in boxes:
+
+        x,y,w,h = box
+
+        nx = int(x * scale_x)
+        ny = int(y * scale_y)
+        nw = int(w * scale_x)
+        nh = int(h * scale_y)
+
+        new_box = (nx,ny,nw,nh)
+        boxes_resized.append((label,score,new_box))
+
+
 
     monocular_depth_resized = np.resize(monocular_depth, sensor_depth.shape)
     sensor_depth_flat = sensor_depth.flatten()
@@ -789,9 +812,8 @@ def blend_depths_metric(sensor_depth, monocular_depth, num_samples=1000):
     r_squared = 1 - (residual_sum_of_squares / total_sum_of_squares)
     
     blended_depth = np.where(sensor_depth == 0, adjusted_monocular_depth, sensor_depth)
-    blended_depth_resized = np.resize(blended_depth, monocular_depth.shape)
-    
-    return blended_depth_resized, K_coeff, r_squared
+
+    return blended_depth, boxes_resized, K_coeff, r_squared
 
 
 def download_image(url):

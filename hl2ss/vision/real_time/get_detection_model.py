@@ -4,7 +4,7 @@ from pathlib import Path
 import openvino as ov
 from openvino.tools.mo.front import tf as ov_tf_front
 from openvino.tools import mo
-import utils as utils
+import real_time.utils as utils
 
 # A directory where the model will be downloaded.
 base_model_dir = Path("model")

@@ -38,7 +38,7 @@ pv_framerate = 15
 buffer_length = 5
 
 # Maximum depth, points beyond are removed
-max_sensor_depth = 5
+max_sensor_depth = 10
 
 device = 'cpu' #'cuda:0'
 score_thr = 0.3
@@ -69,7 +69,7 @@ def update_visualization(vis_inference_frame, points, vis, main_pcd, first_geome
     vis.poll_events()
     vis.update_renderer()
 
-def frame_processing_manager(data_pv, data_depth,scale,xy1):
+def frame_processing(data_pv, data_depth,scale,xy1):
         
     # Update PV intrinsics ------------------------------------------------
     # PV intrinsics may change between frames due to autofocus
@@ -80,23 +80,25 @@ def frame_processing_manager(data_pv, data_depth,scale,xy1):
     sensor_depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
     sensor_depth[sensor_depth > max_sensor_depth] = 0
 
-    if frame is not None:
-        vis_depth_frame, boxes, monocular_depth = detect.get_detection_and_depth_frame(frame)
+    #vis_depth_frame, boxes, monocular_depth = detect.get_detection_and_depth_frame(frame)
     
     # Blend sensor depth with monocular depth using linear regression
-    depth, _, _ = utils.blend_depths_metric(sensor_depth,monocular_depth,num_samples=1000)
-
+    #blended_depth, boxes_resized, K_factor, r_square = utils.blend_depths_metric(sensor_depth,monocular_depth,boxes,num_samples=1000)
+    #print(K_factor,r_square)
     # Estimate local postion of detected objects on blended depth map using a median filter
-    poses = detect.estimate_box_poses(depth,boxes)
+    #poses = detect.estimate_box_poses(depth,boxes_resized)
+    #poses = detect.estimate_box_poses(sensor_depth,boxes_resized)
+
+    vis_depth = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
+    vis_depth_frame = cv2.applyColorMap(vis_depth, colormap=cv2.COLORMAP_INFERNO)
 
     # Draw boxes on the visual depth frame
-    vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
+    #vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
 
     # To do: Get world postion of detected poses
 
-
     # Build pointcloud ----------------------------------------------------
-    points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)
+    points = hl2ss_3dcv.rm_depth_to_points(sensor_depth, xy1)
     depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
     points = hl2ss_3dcv.transform(points, depth_to_world)
 
@@ -109,7 +111,7 @@ def frame_processing_manager(data_pv, data_depth,scale,xy1):
 
     points = hl2ss_3dcv.block_to_list(points)
     # Remove invalid points -----------------------------------------------
-    select = depth.reshape((-1,)) > 0
+    select = sensor_depth.reshape((-1,)) > 0
     points = points[select, :]
 
 
@@ -178,10 +180,12 @@ if __name__ == '__main__':
         if ((data_pv is None) or (not hl2ss.is_valid_pose(data_pv.pose))):
             continue
 
-        vis_inference_frame, points = frame_processing_manager(data_pv,data_depth,scale,xy1)
 
-        if visualize:
-            update_visualization(vis_inference_frame, points, vis, main_pcd, first_geometry)
+        if data_pv.payload.image is not None:
+            vis_inference_frame, points = frame_processing(data_pv,data_depth,scale,xy1)
+
+            if visualize:
+                update_visualization(vis_inference_frame, points, vis, main_pcd, first_geometry)
 
 
     # Stop PV and RM Depth Long Throw streams ---------------------------------

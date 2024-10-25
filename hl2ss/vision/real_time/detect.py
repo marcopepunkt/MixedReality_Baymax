@@ -7,16 +7,12 @@ import numpy as np
 from IPython import display
 import openvino as ov
 from openvino.tools import mo
-import utils as utils
+import real_time.utils as utils
 
 from typing import List, Tuple
 
 import threading
 
-# Downloads models
-import get_detection_model
-import get_depth_model
-##
 
 core = ov.Core()
 device = utils.device_widget()
@@ -236,7 +232,7 @@ def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
         else:
             avg_depth = median_depth
         
-        poses.append(Object((cx,cy),avg_depth,box))
+        poses.append(Object(p_center=(cx,cy),depth=avg_depth,box=box))
 
     return poses
           
