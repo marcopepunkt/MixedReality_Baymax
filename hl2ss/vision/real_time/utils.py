@@ -761,17 +761,15 @@ def blend_depths_metric(sensor_depth, monocular_depth, num_samples=1000):
     """
     Function that blends sensor_depth with monocular depth
     """
-    # Step 1: Reshape monocular_depth to match the shape of sensor_depth
+
     monocular_depth_resized = np.resize(monocular_depth, sensor_depth.shape)
-    
-    # Step 2: Flatten both depth arrays for easier indexing
     sensor_depth_flat = sensor_depth.flatten()
     monocular_depth_flat = monocular_depth_resized.flatten()
     
-    # Step 3: Identify valid pixels where both sensor and monocular depth values are greater than 0
+    # Identify valid pixels where both sensor and monocular depth values are greater than 0
     valid_pixels = np.where((sensor_depth_flat > 0) & (monocular_depth_flat > 0))[0]
     
-    # Step 4: Randomly sample a set of valid pixels
+    # Randomly sample a set of valid pixels
     if len(valid_pixels) < num_samples:
         num_samples = len(valid_pixels)  # In case the number of valid pixels is less than num_samples
     sampled_pixels = np.random.choice(valid_pixels, num_samples, replace=False)

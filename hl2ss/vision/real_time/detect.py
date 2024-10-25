@@ -9,6 +9,8 @@ import openvino as ov
 from openvino.tools import mo
 import utils as utils
 
+from typing import List, Tuple
+
 import threading
 
 # Downloads models
@@ -137,6 +139,23 @@ colors = cv2.applyColorMap(
     colormap=cv2.COLORMAP_RAINBOW,
 ).squeeze()
 
+class Object:
+    def __init__(self, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+        self.center = p_center  # (x, y)
+        self.depth = depth
+        self.box = box  # (x, y, w, h)
+    
+    def get_box_corners(self) -> List[Tuple[float, float]]:
+        x, y, w, h = self.box
+        
+        # Calculate corners
+        top_left = (x - w // 2, y - h // 2)
+        top_right = (x + w // 2, y - h // 2)
+        bottom_left = (x - w // 2, y + h // 2)
+        bottom_right = (x + w // 2, y + h // 2)
+        
+        return [top_left, top_right, bottom_left, bottom_right]
+
 
 def process_results(frame, results, thresh=0.6):
     # The size of the original frame.
@@ -165,8 +184,8 @@ def process_results(frame, results, thresh=0.6):
     return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
 
 
-def draw_depth_boxes(frame, boxes, depths):
-    for (label, score, box), depth in zip(boxes, depths):
+def draw_depth_boxes(frame, boxes, poses: List[Object]):
+    for (label, score, box), pose in zip(boxes, poses):
         # Choose color for the label.
         color = tuple(map(int, colors[label]))
         
@@ -176,7 +195,7 @@ def draw_depth_boxes(frame, boxes, depths):
         cv2.rectangle(img=frame, pt1=box[:2], pt2=(x2, y2), color=color, thickness=3)
 
         # Draw a label name, score, and depth inside the box.
-        label_text = f"{classes[label]} {score:.2f} Depth: {depth:.2f}m"
+        label_text = f"{classes[label]} {score:.2f} Depth: {pose.depth:.2f}m"
         cv2.putText(
             img=frame,
             text=label_text,
@@ -194,10 +213,10 @@ def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
     
     poses = []
 
-    for _, _, box in boxes:
+    for label, _, box in boxes:
         x, y, w, h = box
 
-        cx, cy = x + w/2 , y + h/2
+        cx, cy = x + w//2 , y + h//2
 
         # Get a smaller box in the middle of the bounding box
         new_w = w // 2 
@@ -217,7 +236,7 @@ def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
         else:
             avg_depth = median_depth
         
-        poses.append([cx,cy,avg_depth])
+        poses.append(Object((cx,cy),avg_depth,box))
 
     return poses
 
