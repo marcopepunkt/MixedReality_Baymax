@@ -16,7 +16,7 @@ import os
 from PIL import Image
 import threading
 
-from vision.real_time import detect, utils
+from real_time import detect, utils
 
 from scene.env import *
 
@@ -93,6 +93,7 @@ def frame_processing_manager(data_pv, data_depth,scale,xy1):
     vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
 
     # To do: Get world postion of detected poses
+
 
     # Build pointcloud ----------------------------------------------------
     points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)

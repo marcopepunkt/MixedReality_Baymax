@@ -783,7 +783,7 @@ def blend_depths_metric(sensor_depth, monocular_depth, num_samples=1000):
     
     adjusted_monocular_depth = monocular_depth_resized * K_coeff
     
-    predicted_depth = monocular_depth_samples * K
+    predicted_depth = monocular_depth_samples * K_coeff
     residual_sum_of_squares = np.sum((sensor_depth_samples - predicted_depth) ** 2)
     total_sum_of_squares = np.sum((sensor_depth_samples - np.mean(sensor_depth_samples)) ** 2)
     r_squared = 1 - (residual_sum_of_squares / total_sum_of_squares)

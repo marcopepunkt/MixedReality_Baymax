@@ -149,12 +149,12 @@ class Object:
         x, y, w, h = self.box
         
         # Calculate corners
-        top_left = (x - w // 2, y - h // 2)
-        top_right = (x + w // 2, y - h // 2)
-        bottom_left = (x - w // 2, y + h // 2)
-        bottom_right = (x + w // 2, y + h // 2)
+        bottom_left = (x , y)
+        bottom_right = (x + w, y )
+        top_left = (x, y + h)
+        top_right = (x + w, y + h)
         
-        return [top_left, top_right, bottom_left, bottom_right]
+        return [bottom_left, bottom_right, top_right, top_left]
 
 
 def process_results(frame, results, thresh=0.6):
@@ -184,8 +184,8 @@ def process_results(frame, results, thresh=0.6):
     return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
 
 
-def draw_depth_boxes(frame, boxes, poses):
-    for (label, score, box), pos in zip(boxes, poses):
+def draw_depth_boxes(frame, boxes, poses: List[Object]):
+    for (label, score, box), pose in zip(boxes, poses):
         # Choose color for the label.
         color = tuple(map(int, colors[label]))
         
@@ -195,7 +195,7 @@ def draw_depth_boxes(frame, boxes, poses):
         cv2.rectangle(img=frame, pt1=box[:2], pt2=(x2, y2), color=color, thickness=3)
 
         # Draw a label name, score, and depth inside the box.
-        label_text = f"{classes[label]} {score:.2f} Depth: {pos[2]:.2f}m"
+        label_text = f"{classes[label]} {score:.2f} Depth: {pose.depth:.2f}m"
         cv2.putText(
             img=frame,
             text=label_text,
@@ -215,8 +215,8 @@ def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
     for _, _, box in boxes:
         x, y, w, h = box
 
-        cx = x + w/2
-        cy = y + h/2
+        cx = x + w//2
+        cy = y + h//2
 
         # Get a smaller box in the middle of the bounding box
         new_w = w // 2 
@@ -236,7 +236,7 @@ def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
         else:
             avg_depth = median_depth
         
-        poses.append([cx,cy,avg_depth])
+        poses.append(Object((cx,cy),avg_depth,box))
 
     return poses
           
@@ -255,6 +255,7 @@ def generate_monocular_point_cloud(depth_frame,focal_length_x,focal_length_y):
 
 # Tried something didn't really make a difference
 def get_detection_and_depth_frame(frame):
+
     input_img = cv2.resize(src=frame, dsize=(width, height), interpolation=cv2.INTER_AREA)
     input_img = input_img[np.newaxis, ...]
 
@@ -280,10 +281,7 @@ def get_detection_and_depth_frame(frame):
     detection_thread.join()
     depth_thread.join()
 
-    poses = estimate_box_poses(depth_results['metric_depth'],detection_results['processed_boxes'])
-    vis_frame = draw_depth_boxes(depth_results['out_frame'],detection_results['processed_boxes'],poses)
-
-    return vis_frame , detection_results['processed_boxes'], poses , depth_results['out_frame']
+    return depth_results['out_frame'] , detection_results['processed_boxes'] , depth_results['metric_depth']
 
 
 

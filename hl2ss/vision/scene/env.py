@@ -1,4 +1,5 @@
 import math
+from typing import List
 
 # Class to represent a 3D point
 class Point3D:
@@ -27,6 +28,8 @@ class Point3D:
 
     def __repr__(self):
         return f"Point3D(x={self.x}, y={self.y}, z={self.z})"
+    
+PointCloud3D = List[Point3D]
 
 
 # Class to represent a 2D point

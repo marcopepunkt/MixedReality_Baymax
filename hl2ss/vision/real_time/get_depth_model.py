@@ -11,6 +11,7 @@ import utils
 
 import requests
 import os
+import cv2
 
 if __name__ == '__main__':
 
@@ -64,9 +65,9 @@ if __name__ == '__main__':
     # Get Sample RGB Image #
     ########################
 
-    image_url = "https://images.pexels.com/photos/5740792/pexels-photo-5740792.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
-    image = np.array(utils.download_image(image_url))
-
+    #image_url = "https://images.pexels.com/photos/5740792/pexels-photo-5740792.jpeg?auto=compress&cs=tinysrgb&w=1260&h=750&dpr=1"
+    #image = np.array(utils.download_image(image_url))
+    image = cv2.imread("real_time\demo\pexels-photo.jpeg")
     ########################
     # Preprocess RGB Image #
     ########################
