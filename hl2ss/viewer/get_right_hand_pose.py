@@ -134,8 +134,8 @@ def get_finger_joint_positions(hand, finger_name):
         joint_positions = {
             'metacarpal': hand.get_joint_pose(joints[0]).position,
             'proximal': hand.get_joint_pose(joints[1]).position,
-            'intermediate': hand.get_joint_pose(joints[1]).position,  # Duplicate proximal for consistency
-            'distal': hand.get_joint_pose(joints[2]).position,
+            'intermediate': hand.get_joint_pose(joints[2]).position,  
+            'distal': hand.get_joint_pose(joints[3]).position,
             'tip': hand.get_joint_pose(joints[3]).position
         }
     else:
@@ -149,48 +149,52 @@ def get_finger_joint_positions(hand, finger_name):
     
     return joint_positions
 
-listener = keyboard.Listener(on_press=on_press)
-listener.start()
 
-client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
-client.open()
+if __name__ == '__main__':
 
-print("Starting hand tracking. Press ESC to stop.")
-print("Angle conventions:")
-print("- Flexion: Positive")
-print("- Extension: Negative")
-print("- Abduction: Positive")
-print("- Adduction: Negative")
+    listener = keyboard.Listener(on_press=on_press)
+    listener.start()
 
-while (enable):
-    data = client.get_next_packet()
-    si = hl2ss.unpack_si(data.payload)
+    client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
+    client.open()
 
-    if (si.is_valid_hand_right()):
-        hand_right = si.get_hand_right()
-        palm_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Palm).position
-        
-        # Calculate palm normal once for consistent reference
-        wrist_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist).position
-        middle_metacarpal = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.MiddleMetacarpal).position
-        palm_vector = middle_metacarpal - wrist_position
-        side_vector = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.LittleMetacarpal).position - hand_right.get_joint_pose(hl2ss.SI_HandJointKind.ThumbMetacarpal).position
-        palm_normal = normalize_vector(np.cross(palm_vector, side_vector))
-        
-        # Get angles for each finger
-        fingers = ['thumb', 'index', 'middle', 'ring', 'little']
-        print(f'\nHand joint angles at time {data.timestamp}:')
-        
-        for finger in fingers:
-            joint_positions = get_finger_joint_positions(hand_right, finger)
-            angles = calculate_finger_angles(joint_positions, palm_position, palm_normal)
-            print(f'\n{finger.capitalize()} finger:')
-            print(f'  DIP: {angles["DIP"]:6.2f}° {"(flexion)" if angles["DIP"] > 0 else "(extension)"}')
-            print(f'  PIP: {angles["PIP"]:6.2f}° {"(flexion)" if angles["PIP"] > 0 else "(extension)"}')
-            print(f'  MCP: {angles["MCP_flexion"]:6.2f}° {"(flexion)" if angles["MCP_flexion"] > 0 else "(extension)"}')
-            print(f'  ADD: {angles["ADD"]:6.2f}° {"(abduction)" if angles["ADD"] > 0 else "(adduction)"}')
-    else:
-        print('No right hand data')
+    print("Starting hand tracking. Press ESC to stop.")
+    print("Angle conventions:")
+    print("- Flexion: Positive")
+    print("- Extension: Negative")
+    print("- Abduction: Positive")
+    print("- Adduction: Negative")
 
-client.close()
-listener.join()
+    while (enable):
+        data = client.get_next_packet()
+        si = hl2ss.unpack_si(data.payload)
+
+        if (si.is_valid_hand_right()):
+            hand_right = si.get_hand_right()
+            palm_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Palm).position
+            
+            # Calculate palm normal once for consistent reference
+           
+            middle_metacarpal = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.MiddleMetacarpal).position
+            palm_vector = middle_metacarpal - palm_position
+            side_vector = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.LittleMetacarpal).position - hand_right.get_joint_pose(hl2ss.SI_HandJointKind.ThumbMetacarpal).position
+            palm_normal = normalize_vector(np.cross(palm_vector, side_vector))
+            palm_normal = None
+            
+            # Get angles for each finger
+            fingers = ['thumb', 'index', 'middle', 'ring', 'little']
+            print(f'\nHand joint angles at time {data.timestamp}:')
+            
+            for finger in fingers:
+                joint_positions = get_finger_joint_positions(hand_right, finger)
+                angles = calculate_finger_angles(joint_positions, palm_position, palm_normal)
+                print(f'\n{finger.capitalize()} finger:')
+                print(f'  DIP: {angles["DIP"]:6.2f}° {"(flexion)" if angles["DIP"] > 0 else "(extension)"}')
+                print(f'  PIP: {angles["PIP"]:6.2f}° {"(flexion)" if angles["PIP"] > 0 else "(extension)"}')
+                print(f'  MCP: {angles["MCP_flexion"]:6.2f}° {"(flexion)" if angles["MCP_flexion"] > 0 else "(extension)"}')
+                print(f'  ADD: {angles["ADD"]:6.2f}° {"(abduction)" if angles["ADD"] > 0 else "(adduction)"}')
+        else:
+            print('No right hand data')
+
+    client.close()
+    listener.join()

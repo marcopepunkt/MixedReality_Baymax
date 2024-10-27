@@ -78,28 +78,44 @@
             little: [240, 180]
         };
 
-        function calculateFingerPath(startX, startY, angles) {
+        function calculateFingerPath(startX, startY, angles, fingerName) {
             const SEGMENT_LENGTH = 30;
             let points = [[startX, startY]];
             let currentAngle = 0;
             
-            // MCP joint
-            currentAngle = angles.MCP_flexion;
-            const mcpX = startX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            const mcpY = startY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            points.push([mcpX, mcpY]);
-            
-            // PIP joint
-            currentAngle += angles.PIP;
-            const pipX = mcpX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            const pipY = mcpY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            points.push([pipX, pipY]);
-            
-            // DIP joint
-            currentAngle += angles.DIP;
-            const dipX = pipX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            const dipY = pipY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
-            points.push([dipX, dipY]);
+            if (fingerName === 'thumb') {
+                // Thumb only has CMC (MCP_flexion) and MCP (PIP) joints
+                // CMC joint
+                currentAngle = angles.MCP_flexion;
+                const cmcX = startX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                const cmcY = startY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                points.push([cmcX, cmcY]);
+                
+                // MCP joint
+                currentAngle += angles.PIP;
+                const mcpX = cmcX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                const mcpY = cmcY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                points.push([mcpX, mcpY]);
+            } else {
+                // Other fingers have MCP, PIP, and DIP joints
+                // MCP joint
+                currentAngle = angles.MCP_flexion;
+                const mcpX = startX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                const mcpY = startY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                points.push([mcpX, mcpY]);
+                
+                // PIP joint
+                currentAngle += angles.PIP;
+                const pipX = mcpX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                const pipY = mcpY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                points.push([pipX, pipY]);
+                
+                // DIP joint
+                currentAngle += angles.DIP;
+                const dipX = pipX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                const dipY = pipY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+                points.push([dipX, dipY]);
+            }
             
             return points;
         }
@@ -114,7 +130,7 @@
             // Draw each finger
             Object.entries(handData).forEach(([fingerName, angles]) => {
                 const [startX, startY] = fingerStartPositions[fingerName];
-                const points = calculateFingerPath(startX, startY, angles);
+                const points = calculateFingerPath(startX, startY, angles, fingerName);
                 
                 // Create finger group
                 const fingerGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -146,15 +162,28 @@
             // Update angles display
             const anglesDiv = document.getElementById('angles');
             anglesDiv.innerHTML = Object.entries(handData)
-                .map(([finger, angles]) => `
-                    <div style="color: ${colors[finger]}">
-                        ${finger}: 
-                        DIP ${angles.DIP.toFixed(1)}° 
-                        PIP ${angles.PIP.toFixed(1)}° 
-                        MCP ${angles.MCP_flexion.toFixed(1)}°
-                        ADD ${angles.ADD.toFixed(1)}°
-                    </div>
-                `).join('');
+                .map(([finger, angles]) => {
+                    if (finger === 'thumb') {
+                        return `
+                            <div style="color: ${colors[finger]}">
+                                ${finger}: 
+                                CMC ${angles.MCP_flexion.toFixed(1)}° 
+                                MCP ${angles.PIP.toFixed(1)}°
+                                ADD ${angles.ADD.toFixed(1)}°
+                            </div>
+                        `;
+                    } else {
+                        return `
+                            <div style="color: ${colors[finger]}">
+                                ${finger}: 
+                                DIP ${angles.DIP.toFixed(1)}° 
+                                PIP ${angles.PIP.toFixed(1)}° 
+                                MCP ${angles.MCP_flexion.toFixed(1)}°
+                                ADD ${angles.ADD.toFixed(1)}°
+                            </div>
+                        `;
+                    }
+                }).join('');
         }
 
         function updateData() {
