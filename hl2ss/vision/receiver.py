@@ -69,13 +69,23 @@ def update_visualization(vis_inference_frame, points, vis, main_pcd, first_geome
     vis.poll_events()
     vis.update_renderer()
 
-def post_process_poses(depth, poses: List[utils.Object], xy1, depth_to_world):
+def post_process_poses(depth, poses: List[utils.Object], pixels, xy1, depth_to_world):
 
-    """ transform poses into globl frame"""
+    """ Transform poses into global frame"""
+    # Get list of center pixels for each detected object
     centers = utils.get_centers(poses)
+
+    # Undistort ray map to match undistorted sensor data (really not sure about this)
+    dims = cv2.split(xy1)
+    remapped_dims = [hl2ss_3dcv.rm_depth_undistort(dim,pixels) for dim in dims]
+    xy1 = cv2.merge(remapped_dims)
+
+    # Transform to world CF.
     points = hl2ss_3dcv.rm_depth_to_points(depth[centers], xy1[centers])
     points = hl2ss_3dcv.transform(points, depth_to_world)
     points = hl2ss_3dcv.block_to_list(points)
+
+    # Generate point cloud
     point_cloud = create_point_cloud(points)
 
     return point_cloud
@@ -91,8 +101,18 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     frame = data_pv.payload.image
     sensor_depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
     sensor_depth[sensor_depth > max_sensor_depth] = 0
-    frame = cv2.resize(src=frame, dsize=sensor_depth.shape[:2], interpolation=cv2.INTER_AREA)
 
+    # Build pointcloud ----------------------------------------------------
+    points = hl2ss_3dcv.rm_depth_to_points(sensor_depth, xy1)
+    depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
+    points = hl2ss_3dcv.transform(points, depth_to_world)
+
+    # Project pointcloud image --------------------------------------------
+    world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
+    pixels = hl2ss_3dcv.project(points, world_to_image)
+
+    # Undistort depth frame -----------------------------------------------
+    sensor_depth = hl2ss_3dcv.rm_depth_undistort(sensor_depth,pixels)
     vis_depth = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
     vis_depth_frame = cv2.applyColorMap(vis_depth, colormap=cv2.COLORMAP_INFERNO)
 
@@ -101,17 +121,10 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     poses = detect.estimate_box_poses(sensor_depth,boxes)
     vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
 
-    # Build pointcloud ----------------------------------------------------
-    points = hl2ss_3dcv.rm_depth_to_points(sensor_depth, xy1)
-    depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
-    points = hl2ss_3dcv.transform(points, depth_to_world)
 
     # Get world poses for detected objects
     point_cloud = post_process_poses(sensor_depth,poses,xy1,depth_to_world)
 
-    # Project pointcloud image --------------------------------------------
-    world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
-    pixels = hl2ss_3dcv.project(points, world_to_image)
     
     points = hl2ss_3dcv.block_to_list(points)
     # Remove invalid points -----------------------------------------------
