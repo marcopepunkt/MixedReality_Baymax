@@ -69,6 +69,18 @@ def update_visualization(vis_inference_frame, points, vis, main_pcd, first_geome
     vis.poll_events()
     vis.update_renderer()
 
+def post_process_poses(depth, poses: List[utils.Object], xy1, depth_to_world):
+
+    """ transform poses into globl frame"""
+    centers = utils.get_centers(poses)
+    points = hl2ss_3dcv.rm_depth_to_points(depth[centers], xy1[centers])
+    points = hl2ss_3dcv.transform(points, depth_to_world)
+    points = hl2ss_3dcv.block_to_list(points)
+    point_cloud = create_point_cloud(points)
+
+    return point_cloud
+
+
 def frame_processing(data_pv, data_depth,scale,xy1):
         
     # Update PV intrinsics ------------------------------------------------
@@ -79,37 +91,28 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     frame = data_pv.payload.image
     sensor_depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
     sensor_depth[sensor_depth > max_sensor_depth] = 0
-
-    #vis_depth_frame, boxes, monocular_depth = detect.get_detection_and_depth_frame(frame)
-    
-    # Blend sensor depth with monocular depth using linear regression
-    #blended_depth, boxes_resized, K_factor, r_square = utils.blend_depths_metric(sensor_depth,monocular_depth,boxes,num_samples=1000)
-    #print(K_factor,r_square)
-    # Estimate local postion of detected objects on blended depth map using a median filter
-    #poses = detect.estimate_box_poses(depth,boxes_resized)
-    #poses = detect.estimate_box_poses(sensor_depth,boxes_resized)
+    frame = cv2.resize(src=frame, dsize=sensor_depth.shape[:2], interpolation=cv2.INTER_AREA)
 
     vis_depth = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
     vis_depth_frame = cv2.applyColorMap(vis_depth, colormap=cv2.COLORMAP_INFERNO)
 
-    # Draw boxes on the visual depth frame
-    #vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
-
-    # To do: Get world postion of detected poses
+    # Object Detection -----------------------------------------------------
+    _ , boxes = detect.get_object_detection_frame(frame)
+    poses = detect.estimate_box_poses(sensor_depth,boxes)
+    vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
 
     # Build pointcloud ----------------------------------------------------
     points = hl2ss_3dcv.rm_depth_to_points(sensor_depth, xy1)
     depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
     points = hl2ss_3dcv.transform(points, depth_to_world)
 
+    # Get world poses for detected objects
+    point_cloud = post_process_poses(sensor_depth,poses,xy1,depth_to_world)
+
     # Project pointcloud image --------------------------------------------
     world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
     pixels = hl2ss_3dcv.project(points, world_to_image)
-    print(pixels.shape)
     
-    map_u = pixels[:, :, 0]
-    map_v = pixels[:, :, 1]
-
     points = hl2ss_3dcv.block_to_list(points)
     # Remove invalid points -----------------------------------------------
     select = sensor_depth.reshape((-1,)) > 0
@@ -119,7 +122,6 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     # Locate Obstacles Monocular & Depth sensor - fusion of the two will be tricky...
 
     # Update Environement
-
     
     return vis_depth_frame, points
     
