@@ -105,6 +105,7 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     # Project pointcloud image --------------------------------------------
     world_to_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(pv_extrinsics) @ hl2ss_3dcv.camera_to_image(pv_intrinsics)
     pixels = hl2ss_3dcv.project(points, world_to_image)
+    print(pixels.shape)
     
     map_u = pixels[:, :, 0]
     map_v = pixels[:, :, 1]

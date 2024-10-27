@@ -13,13 +13,22 @@ from typing import List, Tuple
 
 import threading
 
+import os
+
 
 core = ov.Core()
 device = utils.device_widget()
 
 # Read the network and corresponding weights from a file.
-detection_model = core.read_model(model='model/ssdlite_mobilenet_v2_fp16.xml')
-depth_model = core.read_model(model='models_ov/depth_anything_v2_metric_vkitti_vits_int8.xml')
+current_dir = os.path.dirname(os.path.abspath(__file__)) # located in real_time
+parent_dir =  os.path.dirname(current_dir)
+
+detection_model_path = os.path.join(parent_dir, 'model', 'ssdlite_mobilenet_v2_fp16.xml')
+depth_model_path =  os.path.join(parent_dir, 'models_ov', 'depth_anything_v2_metric_vkitti_vits.xml')
+
+
+detection_model = core.read_model(model=detection_model_path)
+depth_model = core.read_model(model=depth_model_path)
 
 # Compile the model for CPU (you can choose manually CPU, GPU etc.)
 # or let the engine choose the best available device (AUTO).

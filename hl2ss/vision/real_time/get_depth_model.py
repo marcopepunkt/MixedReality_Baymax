@@ -3,11 +3,11 @@ from pathlib import Path
 
 import openvino as ov
 
-from depth_anything_v2.dpt import DepthAnythingV2
+from real_time.depth_anything_v2.dpt import DepthAnythingV2
 
 import numpy as np
 
-import utils
+import real_time.utils as utils
 
 import requests
 import os
