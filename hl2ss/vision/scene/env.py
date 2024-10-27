@@ -31,6 +31,19 @@ class Point3D:
     
 PointCloud3D = List[Point3D]
 
+def create_point_cloud(arrays) -> PointCloud3D:
+    """
+    Converts a list of objects with size 3 into a PointCloud3D.
+
+    Parameters:
+        arrays : List of 3-element objects representing (x, y, z) coordinates.
+
+    Returns:
+        PointCloud3D: List of Point3D objects.
+    """
+    point_cloud = [Point3D(arr[0], arr[1], arr[2]) for arr in arrays if len(arr) == 3]
+    return point_cloud
+
 
 # Class to represent a 2D point
 class Point2D:
