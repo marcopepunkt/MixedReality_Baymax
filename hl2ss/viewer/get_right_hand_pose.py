@@ -8,6 +8,7 @@ from pynput import keyboard
 
 import hl2ss
 import hl2ss_lnm
+import hl2ss_utilities
 
 import numpy as np
 
@@ -24,11 +25,73 @@ def on_press(key):
     global enable
     enable = key != keyboard.Key.esc
     return enable
-def get_finger_joints(hand):
-    joints = []
-    for i in range(5):
-        joints.append(hand.get_joint_pose(hl2ss.SI_HandJointKind(i)))
-    return joints
+
+def calculate_finger_angles(joint_positions, palm_position):
+    """
+    Calculate joint angles of the a non-thumb finger.
+    
+    Args:
+        index_joint_positions: Dictionary containing 3D positions of index finger joints
+        palm_position: 3D position of the palm center
+    
+    Returns:
+        Dictionary containing the calculated angles in degrees:
+        - DIP (Distal Interphalangeal)
+        - PIP (Proximal Interphalangeal)
+        - MCP (Metacarpophalangeal) flexion
+        - ADD (Adduction/Abduction)
+    """
+    # Calculate vectors between joints
+   
+    index_palm = index_joint_positions['proximal'] - index_joint_positions['metacarpal']  # Metacarpal to proximal
+    index_pp = index_joint_positions['intermediate'] - index_joint_positions['proximal']  # Proximal to intermediate
+    index_ip = index_joint_positions['distal'] - index_joint_positions['intermediate']  # Intermediate to distal
+    index_dp = index_joint_positions['tip'] - index_joint_positions['distal']  # Distal to tip
+    
+    def normalize_vector(v):
+        """Normalize a vector"""
+        return v / np.linalg.norm(v)
+    
+    def angle_between_vectors(v1, v2):
+        """Calculate angle between two vectors in degrees"""
+        v1_norm = normalize_vector(v1)
+        v2_norm = normalize_vector(v2)
+        dot_product = np.clip(np.dot(v1_norm, v2_norm), -1.0, 1.0)
+        return np.degrees(np.arccos(dot_product))
+    
+    def project_vector_to_plane(vector, plane_normal):
+        """Project a vector onto a plane defined by its normal"""
+        plane_normal = normalize_vector(plane_normal)
+        projection = vector - np.dot(vector, plane_normal) * plane_normal
+        return projection
+    
+    # Calculate DIP (angle between dp and ip)
+    dip_angle = angle_between_vectors(index_dp, index_ip)
+    # Calculate PIP (angle between ip and pp)
+    pip_angle = angle_between_vectors(index_ip, index_pp)
+    
+    # Calculate palm plane normal (assuming palm plane is defined by metacarpal, carpal and palm center)
+    palm_normal = np.cross(normalize_vector(index_palm), normalize_vector(index_joint_positions['metacarpal'] - palm_position))
+    palm_normal = normalize_vector(palm_normal)
+    
+    # Calculate MCP flexion (angle between pp and palm plane)
+    # Project index_pp onto the plane perpendicular to the palm plane normal
+    pp_projection_flexion = project_vector_to_plane(index_pp, np.cross(palm_normal, index_palm))
+    mcp_flexion = angle_between_vectors(pp_projection_flexion, index_palm)
+    
+    # Calculate adduction angle (projection onto palm plane)
+    # Project index_pp onto the palm plane
+    pp_projection_add = project_vector_to_plane(index_pp, palm_normal)
+    adduction_angle = angle_between_vectors(pp_projection_add, index_palm)
+
+    mcp_flexion = angle_between_vectors(index_pp, index_palm)
+    
+    return {
+        'DIP': dip_angle,
+        'PIP': pip_angle,
+        'MCP_flexion': mcp_flexion,
+        'ADD': adduction_angle
+    }
 
 listener = keyboard.Listener(on_press=on_press)
 listener.start()
@@ -36,55 +99,7 @@ listener.start()
 client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
 client.open()
 
-def get_relative_poses(hand, finger_links):
-    for link in finger_links:
-        link_position = hand.get_joint_pose(link).position
-        link_orientation = hand.get_joint_pose(link).orientation
 
-
-def calculate_finger_angles(joint_positions):
-    """
-    Calculate angles between finger joints using position data.
-    
-    Parameters:
-    joint_positions: dict with keys ['wrist', 'metacarpal', 'proximal', 'intermediate', 'distal', 'tip']
-    Each value should be a numpy array or list of 3 coordinates [x, y, z]
-    
-    Returns:
-    dict: Contains angles (in degrees) between each segment of the finger
-    """
-    def normalize_vector(vector):
-        return vector / np.linalg.norm(vector)
-    
-    def angle_between_vectors(v1, v2):
-        v1_normalized = normalize_vector(v1)
-        v2_normalized = normalize_vector(v2)
-        dot_product = np.clip(np.dot(v1_normalized, v2_normalized), -1.0, 1.0)
-        angle_rad = np.arccos(dot_product)
-        return np.degrees(angle_rad)
-    
-    # Convert input positions to numpy arrays if they aren't already
-    positions = {k: np.array(v) for k, v in joint_positions.items()}
-    
-    # Calculate vectors between joints
-    wrist_to_metacarpal = positions['metacarpal'] - positions['wrist']
-    metacarpal_to_proximal = positions['proximal'] - positions['metacarpal']
-    proximal_to_intermediate = positions['intermediate'] - positions['proximal']
-    intermediate_to_distal = positions['distal'] - positions['intermediate']
-    distal_to_tip = positions['tip'] - positions['distal']
-    
-    # Calculate angles between segments
-    angles = {
-        'wrist_metacarpal_angle': angle_between_vectors(wrist_to_metacarpal, metacarpal_to_proximal),
-        'metacarpal_proximal_angle': angle_between_vectors(metacarpal_to_proximal, proximal_to_intermediate),
-        'proximal_intermediate_angle': angle_between_vectors(proximal_to_intermediate, intermediate_to_distal),
-        'intermediate_distal_angle': angle_between_vectors(intermediate_to_distal, distal_to_tip)
-    }
-    
-    # Calculate total flexion (sum of all joint angles)
-    angles['total_flexion'] = sum(angles.values())
-    
-    return angles
 
 while (enable):
     data = client.get_next_packet()
@@ -94,18 +109,11 @@ while (enable):
 
     if (si.is_valid_hand_right()):
         hand_right = si.get_hand_right()
-        wrist_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist)
-
-        index_finger_links = [
-            hl2ss.SI_HandJointKind.IndexMetacarpal,
-            hl2ss.SI_HandJointKind.IndexProximal,
-            hl2ss.SI_HandJointKind.IndexIntermediate,
-            hl2ss.SI_HandJointKind.IndexDistal,
-            hl2ss.SI_HandJointKind.IndexTip,
-            ]
         
-        index_finger_positions = {
-            'wrist':  hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist).position,
+        palm_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Palm).position
+        
+        index_joint_positions = {
+           
             'metacarpal': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexMetacarpal).position,
             'proximal': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexProximal).position,
             'intermediate': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexIntermediate).position,   
@@ -113,34 +121,20 @@ while (enable):
             'tip': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexTip).position
         }
 
-        index_finger_orientations = {
-            'wrist':  hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist).orientation,
-            'metacarpal': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexMetacarpal).orientation,
-            'proximal': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexProximal).orientation,
-            'intermediate': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexIntermediate).orientation,   
-            'distal': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexDistal).orientation,
-            'tip': hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexTip).orientation
-        }
+        index_angles = calculate_finger_angles(index_joint_positions, palm_position)
 
-        angles = calculate_finger_angles(index_finger_orientations)
-
-        print("----Single frame joint angles----")
-        for joint, angle in angles.items():
-            print(f"{joint}: {angle:.2f} degrees")
+        print(f'Index finger angles:', index_angles)
 
 
 
-        # index_m_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexMetacarpal)
-        # index_p_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexProximal)
-        # index_i_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexIntermediate)
-        # index_d_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexDistal)
-        # index_t_pose = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.IndexTip)
-        # print(f'Right wrist pose: Position={wrist_pose.position} Orientation={wrist_pose.orientation} Radius={wrist_pose.radius} Accuracy={wrist_pose.accuracy}')
-        # print(f'Right index metacarpal pose: Position={index_m_pose.position} Orientation={index_m_pose.orientation} Radius={index_m_pose.radius} Accuracy={index_m_pose.accuracy}')
-        # print(f'Right index proximal pose: Position={index_p_pose.position} Orientation={index_p_pose.orientation} Radius={index_p_pose.radius} Accuracy={index_p_pose.accuracy}')
-        # print(f'Right index intermediate pose: Position={index_i_pose.position} Orientation={index_i_pose.orientation} Radius={index_i_pose.radius} Accuracy={index_i_pose.accuracy}')
-        # print(f'Right index distal pose: Position={index_d_pose.position} Orientation={index_d_pose.orientation} Radius={index_d_pose.radius} Accuracy={index_d_pose.accuracy}')
-        # print(f'Right index tip pose: Position={index_t_pose.position} Orientation={index_t_pose.orientation} Radius={index_t_pose.radius} Accuracy={index_t_pose.accuracy}')
+
+
+  
+
+
+
+ 
+        
     else:
         print('No right hand data')
 
