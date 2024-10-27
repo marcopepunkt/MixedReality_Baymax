@@ -7,7 +7,9 @@ import numpy as np
 from IPython import display
 import openvino as ov
 from openvino.tools import mo
+
 import real_time.utils as utils
+#import utils
 
 from typing import List, Tuple
 
@@ -144,23 +146,6 @@ colors = cv2.applyColorMap(
     colormap=cv2.COLORMAP_RAINBOW,
 ).squeeze()
 
-class Object:
-    def __init__(self, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
-        self.center = p_center  # (x, y)
-        self.depth = depth
-        self.box = box  # (x, y, w, h)
-    
-    def get_box_corners(self) -> List[Tuple[float, float]]:
-        x, y, w, h = self.box
-        
-        # Calculate corners
-        bottom_left = (x , y)
-        bottom_right = (x + w, y )
-        top_left = (x, y + h)
-        top_right = (x + w, y + h)
-        
-        return [bottom_left, bottom_right, top_right, top_left]
-
 
 def process_results(frame, results, thresh=0.6):
     # The size of the original frame.
@@ -189,7 +174,7 @@ def process_results(frame, results, thresh=0.6):
     return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
 
 
-def draw_depth_boxes(frame, boxes, poses: List[Object]):
+def draw_depth_boxes(frame, boxes, poses: List[utils.Object]):
     for (label, score, box), pose in zip(boxes, poses):
         # Choose color for the label.
         color = tuple(map(int, colors[label]))
@@ -214,34 +199,37 @@ def draw_depth_boxes(frame, boxes, poses: List[Object]):
 
     return frame
 #
-def estimate_box_poses(metric_depth, boxes, threshold=0.3, stride=2):
+def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=3):
     poses = []
 
     for _, _, box in boxes:
         x, y, w, h = box
 
-        cx = x + w//2
-        cy = y + h//2
+        cx = x + w // 2
+        cy = y + h // 2
 
-        # Get a smaller box in the middle of the bounding box
-        new_w = w // 2 
-        new_h = h // 2  
-        new_x = x + w // 4  
-        new_y = y + h // 4 
-
-        # Sample region of interest from depth map with downsampling
-        roi = metric_depth[new_y:new_y + new_h:stride, new_x:new_x + new_w:stride]
-        roi_depths = roi.flatten()
-
-        median_depth = np.median(roi_depths)
-        valid_depths = roi_depths[np.abs(roi_depths - median_depth) < threshold]
+        # Sample region of interest from depth map with downsampling, flatten, and filter out NaN/zero
+        roi_depths = metric_depth[y:y + h:stride, x:x + w:stride].flatten()
+        roi_depths = roi_depths[(~np.isnan(roi_depths)) & (roi_depths > 0)]
         
-        if len(valid_depths) > 0:
-            avg_depth = np.mean(valid_depths)
+        if len(roi_depths) > 0:
+            # Compute histogram and find top bins
+            histogram, bin_edges = np.histogram(roi_depths, bins=np.arange(roi_depths.min(), roi_depths.max() + bin_width, bin_width))
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            top_bins_indices = np.argsort(histogram)[-cutoff_num:]
+            
+            # Find closest bin among the top bins
+            closest_top_bin_index = top_bins_indices[np.argmin(bin_centers[top_bins_indices])]
+            bin_start = bin_edges[closest_top_bin_index]
+            bin_end = bin_edges[closest_top_bin_index + 1]
+
+            # Calculate median depth within the selected bin range
+            in_bin_depth_values = roi_depths[(roi_depths >= bin_start) & (roi_depths < bin_end)]
+            estimated_depth = np.median(in_bin_depth_values) if len(in_bin_depth_values) > 0 else np.nan
         else:
-            avg_depth = median_depth
+            estimated_depth = np.nan
         
-        poses.append(Object(p_center=(cx,cy),depth=avg_depth,box=box))
+        poses.append(utils.Object(p_center=(cx,cy),depth=estimated_depth,box=box))
 
     return poses
           
@@ -288,7 +276,22 @@ def get_detection_and_depth_frame(frame):
 
     return depth_results['out_frame'] , detection_results['processed_boxes'] , depth_results['metric_depth']
 
+def get_object_detection_frame(input_frame):
 
+    # Resize the image and change dims to fit neural network input.
+    input_img = cv2.resize(src=input_frame, dsize=(width, height), interpolation=cv2.INTER_AREA)
+    # Create a batch of images (size = 1).
+    input_img = input_img[np.newaxis, ...]
+
+    # Get the results.
+    results = compiled_detection_model([input_img])[output_layer]
+    # Get poses from network results.
+    boxes = process_results(frame=input_frame, results=results)
+
+    # Draw boxes on a frame.
+    frame = draw_boxes(frame=input_frame, boxes=boxes)
+
+    return frame, boxes
 
 # Testing
 #-------------------------------------------------------------------------------------
@@ -316,23 +319,6 @@ def draw_boxes(frame, boxes):
 
     return frame
 
-
-def get_object_detection_frame(input_frame):
-
-    # Resize the image and change dims to fit neural network input.
-    input_img = cv2.resize(src=input_frame, dsize=(width, height), interpolation=cv2.INTER_AREA)
-    # Create a batch of images (size = 1).
-    input_img = input_img[np.newaxis, ...]
-
-    # Get the results.
-    results = compiled_detection_model([input_img])[output_layer]
-    # Get poses from network results.
-    boxes = process_results(frame=input_frame, results=results)
-
-    # Draw boxes on a frame.
-    frame = draw_boxes(frame=input_frame, boxes=boxes)
-
-    return frame
 
 def get_depth_frame(input_frame):
 
@@ -468,7 +454,9 @@ def run_detection_and_depth(source=0, flip=False, use_popup=True, skip_first_fra
                 )
 
             start_time = time.time()
-            frame, _ = get_detection_and_depth_frame(frame)
+            frame , boxes, metric_depth = get_detection_and_depth_frame(frame)
+            poses = estimate_box_poses(metric_depth,boxes)
+            frame = draw_depth_boxes(frame,boxes,poses)
             stop_time = time.time()
 
             processing_times.append(stop_time - start_time)
@@ -534,4 +522,4 @@ def run_detection_and_depth(source=0, flip=False, use_popup=True, skip_first_fra
 # cv2.waitKey()
 # cv2.destroyAllWindows()
 
-# run_detection_and_depth()
+run_detection_and_depth()

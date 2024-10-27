@@ -816,6 +816,37 @@ def blend_depths_metric(sensor_depth, monocular_depth, boxes, num_samples=1000):
     return blended_depth, boxes_resized, K_coeff, r_squared
 
 
+class Object:
+    def __init__(self, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+        self.center = p_center  # (x, y)
+        self.depth = depth
+        self.box = box  # (x, y, w, h)
+    
+    def get_box_corners(self) -> List[Tuple[float, float]]:
+        x, y, w, h = self.box
+        
+        # Calculate corners
+        bottom_left = (x , y)
+        bottom_right = (x + w, y )
+        top_left = (x, y + h)
+        top_right = (x + w, y + h)
+        
+        return [bottom_left, bottom_right, top_right, top_left]
+
+def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
+    """
+    Returns a list of center pixels for a given list of Object instances.
+
+    Parameters:
+        objects (List[Object]): List of Object instances.
+
+    Returns:
+        List[Tuple[int, int]]: List of center pixel coordinates (x, y).
+    """
+    return [obj.center for obj in objects]
+
+
+
 def download_image(url):
     """
     Download an image from a given URL and return it as a PIL Image.
