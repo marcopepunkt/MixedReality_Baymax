@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hand Tracking Visualization</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .status {
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: inline-block;
+            margin-bottom: 10px;
+        }
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        .finger-data {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Hand Tracking Visualization</h1>
+        <div id="status" class="status disconnected">Disconnected</div>
+        <div id="visualization">
+            <svg width="400" height="400" viewBox="0 0 400 400" id="handSvg">
+                <!-- Palm -->
+                <rect x="150" y="180" width="100" height="120" rx="10" 
+                      fill="#e0e0e0" stroke="#888" stroke-width="2"/>
+                <!-- Fingers will be drawn here -->
+            </svg>
+        </div>
+        <div id="angles" class="finger-data"></div>
+        <div id="timestamp" class="timestamp"></div>
+    </div>
+
+    <script>
+        const colors = {
+            thumb: 'hsl(0, 70%, 50%)',
+            index: 'hsl(50, 70%, 50%)',
+            middle: 'hsl(100, 70%, 50%)',
+            ring: 'hsl(150, 70%, 50%)',
+            little: 'hsl(200, 70%, 50%)'
+        };
+
+        const fingerStartPositions = {
+            thumb: [160, 220],
+            index: [180, 180],
+            middle: [200, 180],
+            ring: [220, 180],
+            little: [240, 180]
+        };
+
+        function calculateFingerPath(startX, startY, angles) {
+            const SEGMENT_LENGTH = 30;
+            let points = [[startX, startY]];
+            let currentAngle = 0;
+            
+            // MCP joint
+            currentAngle = angles.MCP_flexion;
+            const mcpX = startX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            const mcpY = startY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            points.push([mcpX, mcpY]);
+            
+            // PIP joint
+            currentAngle += angles.PIP;
+            const pipX = mcpX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            const pipY = mcpY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            points.push([pipX, pipY]);
+            
+            // DIP joint
+            currentAngle += angles.DIP;
+            const dipX = pipX + Math.sin(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            const dipY = pipY - Math.cos(currentAngle * Math.PI / 180) * SEGMENT_LENGTH;
+            points.push([dipX, dipY]);
+            
+            return points;
+        }
+
+        function updateVisualization(handData) {
+            const svg = document.getElementById('handSvg');
+            
+            // Clear previous fingers
+            const existingFingers = svg.querySelectorAll('.finger');
+            existingFingers.forEach(finger => finger.remove());
+            
+            // Draw each finger
+            Object.entries(handData).forEach(([fingerName, angles]) => {
+                const [startX, startY] = fingerStartPositions[fingerName];
+                const points = calculateFingerPath(startX, startY, angles);
+                
+                // Create finger group
+                const fingerGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                fingerGroup.classList.add('finger');
+                
+                // Create path
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', `M ${points.map(p => p.join(' ')).join(' L ')}`);
+                path.setAttribute('stroke', colors[fingerName]);
+                path.setAttribute('stroke-width', '4');
+                path.setAttribute('fill', 'none');
+                path.setAttribute('stroke-linecap', 'round');
+                path.setAttribute('stroke-linejoin', 'round');
+                
+                // Add joints
+                points.forEach(([x, y]) => {
+                    const joint = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    joint.setAttribute('cx', x);
+                    joint.setAttribute('cy', y);
+                    joint.setAttribute('r', '3');
+                    joint.setAttribute('fill', colors[fingerName]);
+                    fingerGroup.appendChild(joint);
+                });
+                
+                fingerGroup.appendChild(path);
+                svg.appendChild(fingerGroup);
+            });
+            
+            // Update angles display
+            const anglesDiv = document.getElementById('angles');
+            anglesDiv.innerHTML = Object.entries(handData)
+                .map(([finger, angles]) => `
+                    <div style="color: ${colors[finger]}">
+                        ${finger}: 
+                        DIP ${angles.DIP.toFixed(1)}° 
+                        PIP ${angles.PIP.toFixed(1)}° 
+                        MCP ${angles.MCP_flexion.toFixed(1)}°
+                        ADD ${angles.ADD.toFixed(1)}°
+                    </div>
+                `).join('');
+        }
+
+        function updateData() {
+            fetch('/hand-data')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.handData) {
+                        document.getElementById('status').className = 'status connected';
+                        document.getElementById('status').textContent = 'Connected';
+                        document.getElementById('timestamp').textContent = 
+                            `Last updated: ${new Date(data.timestamp).toLocaleTimeString()}`;
+                        updateVisualization(data.handData);
+                    }
+                })
+                .catch(error => {
+                    document.getElementById('status').className = 'status disconnected';
+                    document.getElementById('status').textContent = 'Disconnected';
+                    console.error('Error fetching hand data:', error);
+                });
+        }
+
+        // Update visualization every 16ms (~60fps)
+        setInterval(updateData, 16);
+    </script>
+</body>
+</html>
