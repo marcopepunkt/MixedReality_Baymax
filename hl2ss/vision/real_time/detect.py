@@ -8,8 +8,8 @@ from IPython import display
 import openvino as ov
 from openvino.tools import mo
 
-#import real_time.utils as utils
-import utils
+import real_time.utils as utils
+#import utils
 
 from typing import List, Tuple
 
@@ -146,23 +146,6 @@ colors = cv2.applyColorMap(
     colormap=cv2.COLORMAP_RAINBOW,
 ).squeeze()
 
-class Object:
-    def __init__(self, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
-        self.center = p_center  # (x, y)
-        self.depth = depth
-        self.box = box  # (x, y, w, h)
-    
-    def get_box_corners(self) -> List[Tuple[float, float]]:
-        x, y, w, h = self.box
-        
-        # Calculate corners
-        bottom_left = (x , y)
-        bottom_right = (x + w, y )
-        top_left = (x, y + h)
-        top_right = (x + w, y + h)
-        
-        return [bottom_left, bottom_right, top_right, top_left]
-
 
 def process_results(frame, results, thresh=0.6):
     # The size of the original frame.
@@ -191,7 +174,7 @@ def process_results(frame, results, thresh=0.6):
     return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
 
 
-def draw_depth_boxes(frame, boxes, poses: List[Object]):
+def draw_depth_boxes(frame, boxes, poses: List[utils.Object]):
     for (label, score, box), pose in zip(boxes, poses):
         # Choose color for the label.
         color = tuple(map(int, colors[label]))
@@ -246,7 +229,7 @@ def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=
         else:
             estimated_depth = np.nan
         
-        poses.append(Object(p_center=(cx,cy),depth=estimated_depth,box=box))
+        poses.append(utils.Object(p_center=(cx,cy),depth=estimated_depth,box=box))
 
     return poses
           
