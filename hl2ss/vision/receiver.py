@@ -123,7 +123,8 @@ def frame_processing(data_pv, data_depth,scale,xy1):
 
 
     # Get world poses for detected objects
-    point_cloud = post_process_poses(sensor_depth,poses,xy1,depth_to_world)
+    point_cloud = post_process_poses(sensor_depth,poses,pixels,xy1,depth_to_world)
+
 
     
     points = hl2ss_3dcv.block_to_list(points)
