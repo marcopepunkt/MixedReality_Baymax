@@ -522,4 +522,7 @@ def run_detection_and_depth(source=0, flip=False, use_popup=True, skip_first_fra
 # cv2.waitKey()
 # cv2.destroyAllWindows()
 
-run_detection_and_depth()
+
+
+if __name__ == "__main__":
+    run_detection_and_depth()
