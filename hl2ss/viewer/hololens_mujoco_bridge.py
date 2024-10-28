@@ -1,3 +1,10 @@
+
+# ------------------------------------------
+# Connect to HoloLens and initialize MuJoCo simulator
+# Track hand movements and convert joint angles
+# Send normalized joint angles to MuJoCo simulator
+# ------------------------------------------
+
 import multiprocessing
 import numpy as np
 from pynput import keyboard

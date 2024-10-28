@@ -1,3 +1,9 @@
+This branch 
+(1) extracts right hand pose with joint angles in get_right_hand_pose.py
+(2) viusalizes the pose in html with hand_viualization.py
+(3) viusalizes the pose in mujoco with hololens_mujoco_bridge.py
+Run each script above from the ./hl2ss/viewer path
+
 # HoloLens 2 Sensor Streaming
 
 HoloLens 2 server software and Python client library for streaming sensor data via TCP. Created to stream HoloLens data in real time over WiFi to a Linux machine for research purposes but also works on Windows and macOS. The server is offered as a standalone application (appxbundle) or as a plugin (dll) compatible with Unity, Unreal, and native UWP applications.
