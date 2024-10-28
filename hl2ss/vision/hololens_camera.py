@@ -76,41 +76,76 @@ class HoloLensDetection:
         os.makedirs(RECORDING_PATH, exist_ok=True)
 
     def init_video_writers(self):
-        """Initialize video writers for PV and depth streams"""
+        """Initialize video writers for both processed and raw streams"""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        # Changed file extension to .avi for better compatibility
-        pv_filename = os.path.join(RECORDING_PATH, f'pv_stream_{timestamp}.avi')
-        depth_filename = os.path.join(RECORDING_PATH, f'depth_stream_{timestamp}.avi')
+        # Files for processed videos (with detection boxes)
+        processed_pv_filename = os.path.join(RECORDING_PATH, f'processed_pv_{timestamp}.avi')
+        processed_depth_filename = os.path.join(RECORDING_PATH, f'processed_depth_{timestamp}.avi')
         
-        # Use XVID codec instead of MJPG
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
+        # Files for raw videos - using mp4 format
+        raw_pv_filename = os.path.join(RECORDING_PATH, f'raw_pv_{timestamp}.mp4')
+        raw_depth_filename = os.path.join(RECORDING_PATH, f'raw_depth_{timestamp}.mp4')
         
-        # Ensure frame size matches the actual frame size
+        # XVID for processed videos
+        fourcc_avi = cv2.VideoWriter_fourcc(*'XVID')
+        # H264 for raw videos
+        fourcc_mp4 = cv2.VideoWriter_fourcc(*'mp4v')
+        
+        # Writers for processed videos (for visualization)
         self.pv_video_writer = cv2.VideoWriter(
-            pv_filename, 
-            fourcc, 
+            processed_pv_filename, 
+            fourcc_avi, 
             PV_FRAMERATE, 
             (PV_WIDTH, PV_HEIGHT),
-            isColor=True  # PV stream is color
+            isColor=True
         )
         self.depth_video_writer = cv2.VideoWriter(
-            depth_filename, 
-            fourcc, 
+            processed_depth_filename, 
+            fourcc_avi, 
             PV_FRAMERATE, 
             (PV_WIDTH, PV_HEIGHT),
-            isColor=True  # Depth visualization is also color (due to colormap)
+            isColor=True
         )
         
-        # Verify writers were initialized properly
-        if not self.pv_video_writer.isOpened():
-            raise RuntimeError(f"Failed to initialize PV video writer: {pv_filename}")
-        if not self.depth_video_writer.isOpened():
-            raise RuntimeError(f"Failed to initialize depth video writer: {depth_filename}")
+        # Get the first frame to determine exact sizes
+        _, data_pv = self.sink_pv.get_most_recent_frame()
+        _, data_depth = self.sink_depth.get_most_recent_frame()
+        
+        if data_pv is not None and data_pv.payload.image is not None:
+            pv_height, pv_width = data_pv.payload.image.shape[:2]
+            print(f"Raw PV size: {pv_width}x{pv_height}")
             
-        self.recording_start_time = time.time()
-        print(f"Recording started. Saving to:\n{pv_filename}\n{depth_filename}")
+            self.raw_pv_writer = cv2.VideoWriter(
+                raw_pv_filename, 
+                fourcc_mp4, 
+                PV_FRAMERATE, 
+                (pv_width, pv_height),
+                isColor=True
+            )
+        else:
+            print("Warning: Could not determine PV frame size")
+            self.raw_pv_writer = None
 
+        if data_depth is not None and data_depth.payload.depth is not None:
+            depth_height, depth_width = data_depth.payload.depth.shape[:2]
+            print(f"Raw depth size: {depth_width}x{depth_height}")
+            
+            self.raw_depth_writer = cv2.VideoWriter(
+                raw_depth_filename, 
+                fourcc_mp4, 
+                PV_FRAMERATE, 
+                (depth_width, depth_height),
+                isColor=True  # We'll convert depth to BGR for compatibility
+            )
+        else:
+            print("Warning: Could not determine depth frame size")
+            self.raw_depth_writer = None
+        
+        self.recording_start_time = time.time()
+        print(f"Recording started. Saving to:\n"
+            f"Processed videos:\n{processed_pv_filename}\n{processed_depth_filename}\n"
+            f"Raw videos:\n{raw_pv_filename}\n{raw_depth_filename}")
 
     def init_keyboard_listener(self):
         """Initialize keyboard listener for graceful exit"""
@@ -130,48 +165,82 @@ class HoloLensDetection:
         self.main_pcd = o3d.geometry.PointCloud()
 
     def process_frame_with_detection(self, data_pv, data_depth, scale, xy1):
-        """Process a single frame with object detection"""
+        """Process a single frame with object detection and save raw frames"""
         try:
             # Get frame from PV stream
             frame = data_pv.payload.image
             if frame is None:
                 return None, None, None
 
-            # Process depth data
+            # Save raw PV frame
+            if self.raw_pv_writer is not None:
+                try:
+                    # Ensure frame is in BGR format
+                    if len(frame.shape) == 2:
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+                    elif frame.shape[2] == 4:  # BGRA format
+                        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                    else:
+                        frame_bgr = frame.copy()
+                    
+                    # Write the frame
+                    self.raw_pv_writer.write(frame_bgr)
+                except Exception as e:
+                    print(f"Error saving raw PV frame: {e}")
+
+            # Save raw depth frame
+            if self.raw_depth_writer is not None and data_depth.payload.depth is not None:
+                try:
+                    # Get raw depth data
+                    raw_depth = data_depth.payload.depth
+                    
+                    # Create a colored visualization of the depth data
+                    depth_min = np.min(raw_depth)
+                    depth_max = np.max(raw_depth)
+                    
+                    if depth_max > depth_min:
+                        # Normalize to 0-255
+                        depth_normalized = ((raw_depth - depth_min) / (depth_max - depth_min) * 255).astype(np.uint8)
+                        # Apply colormap for better visualization
+                        depth_colored = cv2.applyColorMap(depth_normalized, cv2.COLORMAP_JET)
+                    else:
+                        depth_colored = np.zeros((*raw_depth.shape, 3), dtype=np.uint8)
+                    
+                    # Write the colored depth frame
+                    self.raw_depth_writer.write(depth_colored)
+                except Exception as e:
+                    print(f"Error saving raw depth frame: {e}")
+
+            # Continue with the rest of your processing for visualization
+            # [Rest of your code remains the same]
+            
             sensor_depth = hl2ss_3dcv.rm_depth_normalize(data_depth.payload.depth, scale)
             sensor_depth[sensor_depth > MAX_SENSOR_DEPTH] = 0
 
-            # Prepare frame for detection
             input_img = cv2.resize(src=frame, dsize=(width, height), interpolation=cv2.INTER_AREA)
             input_img = input_img[np.newaxis, ...]
 
-            # Run detection
             results = compiled_detection_model([input_img])[output_layer]
             boxes = detect.process_results(frame=frame, results=results, thresh=0.5)
-
-            # Estimate poses using depth
             poses = detect.estimate_box_poses(sensor_depth, boxes)
             
-            # Draw detection boxes
             frame_with_boxes = frame.copy()
             frame_with_boxes = detect.draw_depth_boxes(frame_with_boxes, boxes, poses)
 
-            # Create point cloud
             points = hl2ss_3dcv.rm_depth_to_points(sensor_depth, xy1)
             depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ \
                             hl2ss_3dcv.reference_to_world(data_depth.pose)
             points = hl2ss_3dcv.transform(points, depth_to_world)
 
-            # Process points for visualization
             points = hl2ss_3dcv.block_to_list(points)
             select = sensor_depth.reshape((-1,)) > 0
             points = points[select, :]
 
-            # Create colored depth visualization
-            depth_colored = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-            depth_colored = cv2.applyColorMap(depth_colored, cv2.COLORMAP_INFERNO)
+            depth_colored_vis = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            depth_colored_vis = cv2.applyColorMap(depth_colored_vis, cv2.COLORMAP_INFERNO)
 
-            return frame_with_boxes, depth_colored, points
+            return frame_with_boxes, depth_colored_vis, points
+
         except Exception as e:
             print(f"Frame processing error: {str(e)}")
             return None, None, None
@@ -307,14 +376,19 @@ class HoloLensDetection:
         """Cleanup resources"""
         print("\nCleaning up...")
         try:
-            # Make sure to properly release video writers
-            if self.pv_video_writer is not None:
-                self.pv_video_writer.release()
-                print("PV video writer released")
-            if self.depth_video_writer is not None:
-                self.depth_video_writer.release()
-                print("Depth video writer released")
-                
+            # Release all video writers
+            writers = [
+                (self.pv_video_writer, "Processed PV"),
+                (self.depth_video_writer, "Processed Depth"),
+                (self.raw_pv_writer, "Raw PV"),
+                (self.raw_depth_writer, "Raw Depth")
+            ]
+            
+            for writer, name in writers:
+                if writer is not None:
+                    writer.release()
+                    print(f"{name} video writer released")
+                    
             if self.sink_pv:
                 self.sink_pv.detach()
             if self.sink_depth:
