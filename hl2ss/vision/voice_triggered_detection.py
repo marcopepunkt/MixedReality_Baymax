@@ -11,6 +11,9 @@ import winsound
 import multiprocessing as mp
 from datetime import datetime
 
+import pyttsx3
+import threading
+
 # Import HoloLens libraries
 import hl2ss
 import hl2ss_lnm
@@ -60,6 +63,10 @@ class HoloLensVoiceDetection:
         self.detection_active = False
         self.detection_results = []
         self.last_detection_time = time.time()
+
+        # Initialize TTS engine for voice notifications
+        self.tts_engine = None
+        self.init_tts()
 
         # Initialize OpenVINO
         self.core = ov.Core()
@@ -153,6 +160,57 @@ class HoloLensVoiceDetection:
             print(f"Error initializing streams: {str(e)}")
             raise
 
+    def init_tts(self):
+        """Initialize text-to-speech engine"""
+        try:
+            self.tts_engine = pyttsx3.init()
+            # Configure voice properties
+            self.tts_engine.setProperty('rate', 150)    # Speed of speech
+            self.tts_engine.setProperty('volume', 0.9)  # Volume (0.0 to 1.0)
+            
+            # Get available voices and set to english
+            voices = self.tts_engine.getProperty('voices')
+            for voice in voices:
+                if "english" in voice.name.lower():
+                    self.tts_engine.setProperty('voice', voice.id)
+                    break
+                    
+            print("Text-to-speech initialized")
+        except Exception as e:
+            print(f"Text-to-speech initialization error: {str(e)}")
+            self.tts_engine = None
+
+    def speak_text(self, text):
+        """Speak text in a separate thread"""
+        if self.tts_engine is not None:
+            # Create a thread for speech to avoid blocking
+            thread = threading.Thread(target=self.tts_engine.say, args=(text,))
+            thread.start()
+            # Run the engine in the thread
+            self.tts_engine.runAndWait()
+            
+    def announce_detections(self, boxes, poses):
+        """Announce detected objects and their distances"""
+        if not boxes:
+            self.speak_text("No objects detected")
+            return
+            
+        # Create announcement text
+        announcements = []
+        for (label, score, _), pose in zip(boxes, poses):
+            class_name = detect.classes[label]
+            if pose is not None and not np.isnan(pose.depth):
+                distance = f"{pose.depth:.1f} meters"
+                announcement = f"{class_name} at {distance}"
+            else:
+                announcement = f"{class_name} detected"
+            announcements.append(announcement)
+        
+        # Combine announcements
+        if announcements:
+            text = "I see: " + ". ".join(announcements)
+            self.speak_text(text)
+
     def play_sound(self, frequency, duration):
         """Play a sound notification"""
         try:
@@ -215,6 +273,9 @@ class HoloLensVoiceDetection:
         try:
             if frame is None:
                 return None, None, None
+        
+            if frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 
             input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
             input_img = input_img[np.newaxis, ...]
@@ -227,6 +288,8 @@ class HoloLensVoiceDetection:
 
             poses = detect.estimate_box_poses(sensor_depth, boxes)
             vis_frame = self.draw_detection_results(frame, boxes, poses)
+
+            self.announce_detections(boxes, poses)
 
             print("\nDetected objects:")
             for (label, score, box), pose in zip(boxes, poses):
@@ -338,6 +401,8 @@ class HoloLensVoiceDetection:
             if self.producer:
                 self.producer.stop(hl2ss.StreamPort.PERSONAL_VIDEO)
                 self.producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
+            if self.tts_engine is not None:
+                self.tts_engine.stop()
             
             hl2ss_lnm.stop_subsystem_pv(HOST, hl2ss.StreamPort.PERSONAL_VIDEO)
             
