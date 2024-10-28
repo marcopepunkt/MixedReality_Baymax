@@ -1,0 +1,1 @@
+if for whatever reason you want to use the mesh that don't have the silicone pads on them, change all the paths for the meshe files in the MJCF to point to this directory

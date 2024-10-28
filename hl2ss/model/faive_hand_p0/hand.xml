@@ -1,0 +1,7 @@
+<mujoco model="right_faive_modular">
+    <compiler angle="radian"/>
+    <include file="faive_metadata.xml"/>
+    <worldbody>
+        <include file="faive_structure.xml"/>
+    </worldbody>
+</mujoco>

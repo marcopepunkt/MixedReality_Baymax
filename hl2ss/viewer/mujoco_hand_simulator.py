@@ -5,10 +5,54 @@ import os
 import numpy as np
 import mujoco
 from mujoco import viewer
+import pyquaternion as pyq
 
 from gripper_controller import GripperController
 
+def rotate_quaternion(quat, axis, angle):
+    """
+    Rotate a quaternion by an angle around an axis
+    """
+    angle_rad = np.deg2rad(angle)
+    axis = axis / np.linalg.norm(axis)
+    q = pyq.Quaternion(quat)
+    q = q * pyq.Quaternion(axis=axis, angle=angle_rad)
+    return q.elements
 
+
+def key_callback_data(key, data):
+    """
+    Callback for key presses but with data passed in
+    :param key: Key pressed
+    :param data:  MjData object
+    :return: None
+    """
+    if key == 265:  # Up arrow
+        data.mocap_pos[0, 2] += 0.01
+    elif key == 264:  # Down arrow
+        data.mocap_pos[0, 2] -= 0.01
+    elif key == 263:  # Left arrow
+        data.mocap_pos[0, 0] -= 0.01
+    elif key == 262:  # Right arrow
+        data.mocap_pos[0, 0] += 0.01
+    elif key == 320:  # Numpad 0
+        data.mocap_pos[0, 1] += 0.01
+    elif key == 330:  # Numpad .
+        data.mocap_pos[0, 1] -= 0.01
+    elif key == 260:  # Insert
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [1, 0, 0], 10)
+    elif key == 261:  # Home
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [1, 0, 0], -10)
+    elif key == 268:  # Home
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [0, 1, 0], 10)
+    elif key == 269:  # End
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [0, 1, 0], -10)
+    elif key == 266:  # Page Up
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [0, 0, 1], 10)
+    elif key == 267:  # Page Down
+        data.mocap_quat[0] = rotate_quaternion(data.mocap_quat[0], [0, 0, 1], -10)
+    else:
+        print(key)
 
 class GripperSimulator(GripperController):
     def __init__(self, command_queue,  sim_model="../model/faive_hand_p0/hand_IMU.xml"):
@@ -23,9 +67,13 @@ class GripperSimulator(GripperController):
         self.time_elapsed = 0
 
 
+
+
     def simulation(self):
+        def key_callback(key):
+            key_callback_data(key, self.data)
         
-        with mujoco.viewer.launch_passive(self.model, self.data) as viewer: 
+        with mujoco.viewer.launch_passive(self.model, self.data, key_callback = key_callback) as viewer: 
             self.time_start = time.monotonic()
             print("Simulation started at time: ", self.time_start)
 
@@ -48,7 +96,7 @@ class GripperSimulator(GripperController):
                 with viewer.lock():           
                     viewer.sync()
 
-        
+
 
    
         
@@ -82,6 +130,8 @@ class GripperSimulator(GripperController):
            
             command_queue.put(np.array(joint_angles))
             i += 1
+
+
 
  
 
