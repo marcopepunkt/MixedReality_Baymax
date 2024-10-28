@@ -112,18 +112,20 @@ def frame_processing(data_pv, data_depth,scale,xy1):
     pixels = hl2ss_3dcv.project(points, world_to_image)
 
     # Undistort depth frame -----------------------------------------------
-    sensor_depth = hl2ss_3dcv.rm_depth_undistort(sensor_depth,pixels)
+    #sensor_depth = hl2ss_3dcv.rm_depth_undistort(sensor_depth,pixels)[:, :, np.newaxis]
     vis_depth = cv2.normalize(sensor_depth, None, 0, 255, cv2.NORM_MINMAX).astype("uint8")
     vis_depth_frame = cv2.applyColorMap(vis_depth, colormap=cv2.COLORMAP_INFERNO)
 
     # Object Detection -----------------------------------------------------
+    frame = cv2.resize(frame, sensor_depth.shape[:2])
     _ , boxes = detect.get_object_detection_frame(frame)
     poses = detect.estimate_box_poses(sensor_depth,boxes)
     vis_depth_frame = detect.draw_depth_boxes(vis_depth_frame,boxes,poses)
 
 
     # Get world poses for detected objects
-    point_cloud = post_process_poses(sensor_depth,poses,pixels,xy1,depth_to_world)
+    if len(poses) > 0:
+        point_cloud = post_process_poses(sensor_depth,poses,pixels,xy1,depth_to_world)
 
 
     

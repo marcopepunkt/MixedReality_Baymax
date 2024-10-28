@@ -215,6 +215,9 @@ def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=
         if len(roi_depths) > 0:
             # Compute histogram and find top bins
             histogram, bin_edges = np.histogram(roi_depths, bins=np.arange(roi_depths.min(), roi_depths.max() + bin_width, bin_width))
+            if len(histogram) == 0:
+                estimated_depth = np.nan
+                continue
             bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
             top_bins_indices = np.argsort(histogram)[-cutoff_num:]
             
