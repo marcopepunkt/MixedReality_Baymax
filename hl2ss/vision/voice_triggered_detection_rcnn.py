@@ -21,8 +21,12 @@ import hl2ss_mp
 import hl2ss_3dcv
 
 # Import detection utilities
-from real_time import detect
+from real_time import detect_for_rcnn
 import openvino as ov
+
+from detecto.core import Model
+from detecto import utils, visualize
+import ssl
 
 # Settings
 HOST = '169.254.174.24'
@@ -40,7 +44,7 @@ DETECTION_SOUND_DURATION = 200
 ERROR_SOUND_FREQ = 500
 
 # Colors for visualization
-COLORS = np.random.randint(0, 255, size=(len(detect.classes), 3), dtype=np.uint8)
+COLORS = np.random.randint(0, 255, size=(len(detect_for_rcnn.classes), 3), dtype=np.uint8)
 TEXT_COLOR = (255, 255, 255)
 TEXT_BACKGROUND = (0, 0, 0)
 
@@ -72,17 +76,17 @@ class HoloLensVoiceDetection:
         self.core = ov.Core()
         current_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(current_dir)
-        detection_model_path = os.path.join(parent_dir, 'real_time\model', 'ssdlite_mobilenet_v2_fp16.xml')
+        # detection_model_path = os.path.join(parent_dir, 'real_time\model', 'ssdlite_mobilenet_v2_fp16.xml')
         
         # Create calibration directory if it doesn't exist
         os.makedirs(CALIBRATION_PATH, exist_ok=True)
         
         # Load detection model
-        detection_model = self.core.read_model(model=detection_model_path)
-        self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
-        self.input_layer = self.compiled_model.input(0)
-        self.output_layer = self.compiled_model.output(0)
-        self.height, self.width = list(self.input_layer.shape)[1:3]
+        # detection_model = self.core.read_model(model=detection_model_path)
+        self.compiled_model = Model(device=torch.device('cpu'), pretrained=True)
+        # self.input_layer = self.compiled_model.input(0)
+        # self.output_layer = self.compiled_model.output(0)
+        # self.height, self.width = list(self.input_layer.shape)[1:3]
 
     def init_keyboard(self):
         """Initialize keyboard listener"""
@@ -198,7 +202,8 @@ class HoloLensVoiceDetection:
         # Create announcement text
         announcements = []
         for (label, score, _), pose in zip(boxes, poses):
-            class_name = detect.classes[label]
+            class_name = detect_for_rcnn.classes[label]
+            # class_name = label
             if pose is not None and not np.isnan(pose.depth):
                 distance = f"{pose.depth:.1f} meters"
                 announcement = f"{class_name} at {distance}"
@@ -236,7 +241,8 @@ class HoloLensVoiceDetection:
             cv2.rectangle(vis_frame, (x, y), (x + w, y + h), color, 2)
 
             # Create label
-            class_name = detect.classes[label]
+            class_name = detect_for_rcnn.classes[label]
+            # class_name = label
             confidence = f"{score:.2f}"
             depth_text = f"{pose.depth:.2f}m" if pose is not None and not np.isnan(pose.depth) else "unknown"
             label_text = f"{class_name} ({confidence}) @ {depth_text}"
@@ -277,16 +283,17 @@ class HoloLensVoiceDetection:
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
                 
-            input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
-            input_img = input_img[np.newaxis, ...]
+            # input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
+            # input_img = input_img[np.newaxis, ...]
+            input_img = frame
 
-            results = self.compiled_model([input_img])[self.output_layer]
-            boxes = detect.process_results(frame=frame, results=results, thresh=0.5)
+            labels, boxes, scores = self.compiled_model.predict(input_img)
+            boxes = detect_for_rcnn.process_results(frame, labels, boxes, scores, thresh=0.5)
 
             sensor_depth = hl2ss_3dcv.rm_depth_normalize(depth_data, scale)
             sensor_depth[sensor_depth > MAX_SENSOR_DEPTH] = 0
 
-            poses = detect.estimate_box_poses(sensor_depth, boxes)
+            poses = detect_for_rcnn.estimate_box_poses(sensor_depth, boxes)
             vis_frame = self.draw_detection_results(frame, boxes, poses)
 
             self.announce_detections(boxes, poses)
@@ -294,9 +301,9 @@ class HoloLensVoiceDetection:
             print("\nDetected objects:")
             for (label, score, box), pose in zip(boxes, poses):
                 if pose is not None and not np.isnan(pose.depth):
-                    print(f"- {detect.classes[label]} (confidence: {score:.2f}) at {pose.depth:.2f} meters")
+                    print(f"- {detect_for_rcnn.classes[label]} (confidence: {score:.2f}) at {pose.depth:.2f} meters")
                 else:
-                    print(f"- {detect.classes[label]} (confidence: {score:.2f}) at unknown distance")
+                    print(f"- {detect_for_rcnn.classes[label]} (confidence: {score:.2f}) at unknown distance")
 
             return boxes, poses, vis_frame
 
