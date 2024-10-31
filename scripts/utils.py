@@ -15,10 +15,13 @@ import threading
 import os
 
 class Object:
-    def __init__(self, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+    def __init__(self, label, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+        self.label = label
         self.center = p_center  # (x, y)
         self.depth = depth
         self.box = box  # (x, y, w, h)
+
+        self.world_pose = None
     
     def get_box_corners(self) -> List[Tuple[float, float]]:
         x, y, w, h = self.box
@@ -69,7 +72,7 @@ def remap_bounding_boxes(boxes,frame, target_map):
 def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=3):
     poses = []
 
-    for _, _, box in boxes:
+    for label, _, box in boxes:
         x, y, w, h = box
         cx = x + w//2
         cy = y + h//2
@@ -98,7 +101,7 @@ def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=
         else:
             estimated_depth = np.nan
         
-        poses.append(Object(p_center=(cx,cy),depth=estimated_depth,box=box))
+        poses.append(Object(label=label,p_center=(cx,cy),depth=estimated_depth,box=box))
 
     return poses
 

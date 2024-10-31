@@ -185,7 +185,7 @@ class HoloLensVoiceDetection:
             # Run the engine in the thread
             self.tts_engine.runAndWait()
             
-    def announce_detections(self, boxes, poses):
+    def announce_detections(self, boxes, objects):
         """Announce detected objects and their distances"""
         if not boxes:
             self.speak_text("No objects detected")
@@ -193,7 +193,7 @@ class HoloLensVoiceDetection:
             
         # Create announcement text
         announcements = []
-        for (label, score, _), pose in zip(boxes, poses):
+        for (label, score, _), pose in zip(boxes, objects):
             class_name = utils.classes[label]
             if pose is not None and not np.isnan(pose.depth):
                 distance = f"{pose.depth:.1f} meters"
@@ -214,7 +214,7 @@ class HoloLensVoiceDetection:
         except:
             pass
 
-    def draw_detection_results(self, frame, boxes, poses):
+    def draw_detection_results(self, frame, boxes, objects):
         """Draw detection results on the frame"""
         vis_frame = frame.copy()
         overlay = vis_frame.copy()
@@ -223,7 +223,7 @@ class HoloLensVoiceDetection:
         cv2.putText(vis_frame, f"Detection Time: {timestamp}", 
                    (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, TEXT_COLOR, 2)
 
-        for (label, score, box), pose in zip(boxes, poses):
+        for (label, score, box), pose in zip(boxes, objects):
             color = tuple(map(int, COLORS[label]))
             x, y, w, h = box
             
@@ -264,21 +264,18 @@ class HoloLensVoiceDetection:
 
         return vis_frame
     
-    def post_process_poses(self, depth, poses: List[utils.Object], xy1, depth_to_world):
+    def post_process_objects(self, depth, objects: List[utils.Object], xy1, depth_to_world):
 
-        """ Transform poses into global frame"""
-        # Get list of center pixels for each detected object
-        centers = utils.get_centers(poses)
+        """ Transform objects into global frame"""
 
         # Transform to world CF.
         points = hl2ss_3dcv.rm_depth_to_points(depth, xy1)
         points = hl2ss_3dcv.transform(points, depth_to_world)
 
-        set = []
-        for cx,cy in centers:
-            set.append(hl2ss_3dcv.block_to_list(points[cy,cx])[0])
+        for object in objects:
+            cx, cy = object.center
+            object.world_pose = hl2ss_3dcv.block_to_list(points[cy,cx])[0]
 
-        return set
     
     def get_uv_map(self, data_pv, data_depth, depth):
 
@@ -317,20 +314,19 @@ class HoloLensVoiceDetection:
             uv_map = self.get_uv_map(data_pv,depth_data,sensor_depth)
 
             mapped_boxes = utils.remap_bounding_boxes(boxes,frame,uv_map)
-            poses = utils.estimate_box_poses(sensor_depth,mapped_boxes)
-            vis_frame = self.draw_detection_results(frame, boxes, poses)
+            objects = utils.estimate_box_poses(sensor_depth,mapped_boxes)
+            vis_frame = self.draw_detection_results(frame, boxes, objects)
 
-            self.announce_detections(boxes, poses)
+            self.announce_detections(boxes, objects)
 
-            objects = []
-            if len(poses) > 0:
+            if len(objects) > 0:
                 depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(depth_data.pose)
-                objects = self.post_process_poses(sensor_depth,poses,self.xy1,depth_to_world)
+                self.post_process_objects(sensor_depth,objects,self.xy1,depth_to_world)
 
             print("\nDetected objects:")
-            for (label, score, box), pose in zip(boxes, poses):
-                if pose is not None and not np.isnan(pose.depth):
-                    print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {pose.depth:.2f} meters")
+            for (label, score, box), object in zip(boxes, objects):
+                if object is not None and not np.isnan(object.depth):
+                    print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {object.depth:.2f} meters")
                 else:
                     print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
 

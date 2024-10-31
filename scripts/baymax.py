@@ -30,7 +30,7 @@ if __name__ == '__main__':
     while enable:
         event = app.detector.listen()
         if event:
-            try: poses = app.detector.run()
+            try: objects = app.detector.run()
             except Exception as e:
                 print(f"Detector Failed")
                 break
