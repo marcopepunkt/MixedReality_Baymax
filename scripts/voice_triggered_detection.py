@@ -60,6 +60,8 @@ class HoloLensVoiceDetection:
         self.latest_depth = None
         self.xy1 = None
         self.scale = None
+        self.pv_extrinsics = None
+        self.pv_extrinsics = None
         self.detection_active = False
         self.detection_results = []
         self.last_detection_time = time.time()
@@ -115,9 +117,8 @@ class HoloLensVoiceDetection:
             
             self.xy1, self.scale = hl2ss_3dcv.rm_depth_compute_rays(calibration_lt.uv2xy, calibration_lt.scale)
             
-            global pv_extrinsics, pv_intrinsics
-            pv_intrinsics = hl2ss.create_pv_intrinsics_placeholder()
-            pv_extrinsics = np.eye(4, 4, dtype=np.float32)
+            self.pv_intrinsics = hl2ss.create_pv_intrinsics_placeholder()
+            self.pv_extrinsics = np.eye(4, 4, dtype=np.float32)
 
             self.producer = hl2ss_mp.producer()
             self.producer.configure(hl2ss.StreamPort.PERSONAL_VIDEO, 
@@ -279,15 +280,15 @@ class HoloLensVoiceDetection:
 
         return set
     
-    def get_uv_map(data_pv, data_depth, xy1, depth):
+    def get_uv_map(self, data_pv, data_depth, depth):
 
         # Update PV intrinsics ------------------------------------------------
         # PV intrinsics may change between frames due to autofocus
-        pv_intrinsics = hl2ss.update_pv_intrinsics(pv_intrinsics, data_pv.payload.focal_length, data_pv.payload.principal_point)
-        color_intrinsics, color_extrinsics = hl2ss_3dcv.pv_fix_calibration(pv_intrinsics, pv_extrinsics)
+        self.pv_intrinsics = hl2ss.update_pv_intrinsics(self.pv_intrinsics, data_pv.payload.focal_length, data_pv.payload.principal_point)
+        color_intrinsics, color_extrinsics = hl2ss_3dcv.pv_fix_calibration(self.pv_intrinsics, self.pv_extrinsics)
     
         # Build pointcloud ----------------------------------------------------
-        points = hl2ss_3dcv.rm_depth_to_points(xy1,depth)
+        points = hl2ss_3dcv.rm_depth_to_points(self.xy1,depth)
         world_to_pv_image = hl2ss_3dcv.world_to_reference(data_pv.pose) @ hl2ss_3dcv.rignode_to_camera(color_extrinsics) @ hl2ss_3dcv.camera_to_image(color_intrinsics)
         depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(data_depth.pose)
         world_points = hl2ss_3dcv.transform(points, depth_to_world)
@@ -295,7 +296,7 @@ class HoloLensVoiceDetection:
 
         return uv_map
 
-    def process_detection(self, frame, depth, depth_data, scale, xy1):
+    def process_detection(self, frame, depth, data_pv, depth_data):
         """Process detection on current frame"""
         try:
             if frame is None:
@@ -310,10 +311,10 @@ class HoloLensVoiceDetection:
             results = self.compiled_model([input_img])[self.output_layer]
             boxes = utils.process_results(frame=frame, results=results, thresh=0.5)
 
-            sensor_depth = hl2ss_3dcv.rm_depth_normalize(depth, scale)
+            sensor_depth = hl2ss_3dcv.rm_depth_normalize(depth, self.scale)
             sensor_depth[sensor_depth > MAX_SENSOR_DEPTH] = 0
 
-            uv_map = self.get_uv_map(depth_data,xy1,scale,sensor_depth)
+            uv_map = self.get_uv_map(data_pv,depth_data,sensor_depth)
 
             mapped_boxes = utils.remap_bounding_boxes(boxes,frame,uv_map)
             poses = utils.estimate_box_poses(sensor_depth,mapped_boxes)
@@ -333,7 +334,7 @@ class HoloLensVoiceDetection:
                 else:
                     print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
 
-            return objects, poses, vis_frame
+            return objects, vis_frame
 
         except Exception as e:
             print(f"Detection error: {str(e)}")
@@ -372,9 +373,7 @@ class HoloLensVoiceDetection:
     
     def run(self):
 
-        poses = []
-        # Create visualization frame
-        vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+        objects = []
 
         current_time = time.time()
 
@@ -396,6 +395,8 @@ class HoloLensVoiceDetection:
             #print("Invalid frame")
             return []
         
+        vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+        
         depth = data_depth.payload.depth
         if depth is None:
             print("Invalid depth")
@@ -407,7 +408,7 @@ class HoloLensVoiceDetection:
                 print("\nDetection triggered by voice command")
                 self.play_sound(DETECTION_SOUND_FREQ, DETECTION_SOUND_DURATION)
                 self.detection_active = True
-                objects, vis_frame = self.process_detection(frame, depth, data_depth, self.scale, self.xy1)
+                objects, vis_frame = self.process_detection(frame, depth, data_pv, data_depth)
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
@@ -419,6 +420,7 @@ class HoloLensVoiceDetection:
             
             # Show frame
             if vis_frame is not None:
+                vis_frame = cv2.cvtColor(vis_frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
                 cv2.imshow("HoloLens Detection", vis_frame)
                 cv2.waitKey(1)
 

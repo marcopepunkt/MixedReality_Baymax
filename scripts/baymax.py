@@ -2,6 +2,8 @@ from voice_triggered_detection import HoloLensVoiceDetection
 
 from pynput import keyboard
 
+enable = True
+
 class BayMax:
      
     def __init__(self):
@@ -23,9 +25,11 @@ if __name__ == '__main__':
 
     app = BayMax()
     app.init_keyboard()
+    app.detector.start()
 
     while enable:
-        if app.detector.listen():
+        event = app.detector.listen()
+        if event:
             try: poses = app.detector.run()
             except Exception as e:
                 print(f"Detector Failed")

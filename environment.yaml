@@ -20,4 +20,5 @@ dependencies:
       - opencv-contrib-python
       - datasets
       - nncf
+      - pyttsx
 
