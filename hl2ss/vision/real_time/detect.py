@@ -198,15 +198,41 @@ def draw_depth_boxes(frame, boxes, poses: List[utils.Object]):
         )
 
     return frame
-#
+
+def remap_bounding_boxes(boxes,frame, target_map):
+
+    mapped_boxes = []
+    for label, score, box in boxes:
+        x,y,w,h = box
+
+        mask = np.zeros((frame.shape[0],frame.shape[1]))
+        mask[y:y+h,x:x+w] = 1.0
+        remapped_mask = cv2.remap(mask,target_map[...,0],target_map[...,1], cv2.INTER_LINEAR)
+
+        # cv2.imshow('mask', mask)
+        # cv2.imshow('remap',remapped_mask)
+
+        y_indices, x_indices = np.where(remapped_mask > 0)
+
+        if len(x_indices) > 0 and len(y_indices) > 0:
+            xmin = np.min(x_indices)
+            ymin = np.min(y_indices)
+            w = np.max(x_indices) - xmin
+            h = np.max(y_indices) - ymin
+
+            mapped_boxes.append((label,score,(xmin,ymin,w,h)))
+    
+    return mapped_boxes
+
+
+
 def estimate_box_poses(metric_depth, boxes, bin_width=1., stride=2 , cutoff_num=3):
     poses = []
 
     for _, _, box in boxes:
         x, y, w, h = box
-
-        cx = x + w // 2
-        cy = y + h // 2
+        cx = x + w//2
+        cy = y + h//2
 
         # Sample region of interest from depth map with downsampling, flatten, and filter out NaN/zero
         roi_depths = metric_depth[y:y + h:stride, x:x + w:stride].flatten()
@@ -524,8 +550,6 @@ def run_detection_and_depth(source=0, flip=False, use_popup=True, skip_first_fra
 # cv2.imshow(winname="test_depth",mat=out_frame_depth)
 # cv2.waitKey()
 # cv2.destroyAllWindows()
-
-
 
 if __name__ == "__main__":
     run_detection_and_depth()
