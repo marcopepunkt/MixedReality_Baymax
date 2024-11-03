@@ -24,7 +24,7 @@ import openvino as ov
 import utils
 
 # Settings
-HOST = '169.254.174.24'
+HOST = '192.168.0.31'
 CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
 PV_HEIGHT = 360
@@ -49,8 +49,10 @@ calibration_lt = None
 last_detection_time = 0
 DETECTION_COOLDOWN = 2
 
-class HoloLensVoiceDetection:
-    def __init__(self):
+class HoloLensDetection:
+    def __init__(self, IP_ADDRESS):
+        HOST = IP_ADDRESS
+
         self.producer = None
         self.consumer = None
         self.sink_pv = None
@@ -66,9 +68,7 @@ class HoloLensVoiceDetection:
         self.detection_results = []
         self.last_detection_time = time.time()
 
-        # Initialize TTS engine for voice notifications
-        self.tts_engine = None
-        self.init_tts()
+      
 
         # Initialize OpenVINO
         self.core = ov.Core()
@@ -86,23 +86,6 @@ class HoloLensVoiceDetection:
         self.output_layer = self.compiled_model.output(0)
         self.height, self.width = list(self.input_layer.shape)[1:3]
 
-    def init_voice(self):
-        """Initialize voice recognition"""
-        try:
-            self.voice_client = hl2ss_lnm.ipc_vi(HOST, hl2ss.IPCPort.VOICE_INPUT)
-            self.voice_client.open()
-            self.voice_client.create_recognizer()
-            
-            if not self.voice_client.register_commands(True, VOICE_COMMANDS):
-                print("Failed to register voice commands")
-                raise RuntimeError("Voice command registration failed")
-                
-            print("Voice recognition initialized")
-            self.voice_client.start()
-            
-        except Exception as e:
-            print(f"Error initializing voice recognition: {str(e)}")
-            raise
 
     def init_streams(self):
         """Initialize HoloLens streams"""
@@ -156,63 +139,7 @@ class HoloLensVoiceDetection:
             print(f"Error initializing streams: {str(e)}")
             raise
 
-    def init_tts(self):
-        """Initialize text-to-speech engine"""
-        try:
-            self.tts_engine = pyttsx3.init()
-            # Configure voice properties
-            self.tts_engine.setProperty('rate', 150)    # Speed of speech
-            self.tts_engine.setProperty('volume', 0.9)  # Volume (0.0 to 1.0)
-            
-            # Get available voices and set to english
-            voices = self.tts_engine.getProperty('voices')
-            for voice in voices:
-                if "english" in voice.name.lower():
-                    self.tts_engine.setProperty('voice', voice.id)
-                    break
-                    
-            print("Text-to-speech initialized")
-        except Exception as e:
-            print(f"Text-to-speech initialization error: {str(e)}")
-            self.tts_engine = None
-
-    def speak_text(self, text):
-        """Speak text in a separate thread"""
-        if self.tts_engine is not None:
-            # Create a thread for speech to avoid blocking
-            thread = threading.Thread(target=self.tts_engine.say, args=(text,))
-            thread.start()
-            # Run the engine in the thread
-            self.tts_engine.runAndWait()
-            
-    def announce_detections(self, boxes, objects):
-        """Announce detected objects and their distances"""
-        if not boxes:
-            self.speak_text("No objects detected")
-            return
-            
-        # Create announcement text
-        announcements = []
-        for (label, score, _), pose in zip(boxes, objects):
-            class_name = utils.classes[label]
-            if pose is not None and not np.isnan(pose.depth):
-                distance = f"{pose.depth:.1f} meters"
-                announcement = f"{class_name} at {distance}"
-            else:
-                announcement = f"{class_name} detected"
-            announcements.append(announcement)
-        
-        # Combine announcements
-        if announcements:
-            text = "I see: " + ". ".join(announcements)
-            self.speak_text(text)
-
-    def play_sound(self, frequency, duration):
-        """Play a sound notification"""
-        try:
-            winsound.Beep(frequency, duration)
-        except:
-            pass
+ 
 
     def draw_detection_results(self, frame, boxes, objects):
         """Draw detection results on the frame"""
@@ -317,8 +244,6 @@ class HoloLensVoiceDetection:
             objects = utils.estimate_box_poses(sensor_depth,mapped_boxes)
             vis_frame = self.draw_detection_results(frame, boxes, objects)
 
-            self.announce_detections(boxes, objects)
-
             if len(objects) > 0:
                 depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(depth_data.pose)
                 self.post_process_objects(sensor_depth,objects,self.xy1,depth_to_world)
@@ -340,33 +265,18 @@ class HoloLensVoiceDetection:
 
         try:
             print("Initializing...")
-            self.init_voice()
             self.init_streams()
             
             cv2.namedWindow("HoloLens Detection", cv2.WINDOW_NORMAL)
 
-            print("Ready! Say 'detect' to perform object detection.")
-            self.play_sound(1500, 200)
+            print("Ready!")
 
 
         except Exception as e:
             print(f"Runtime error: {str(e)}")
             import traceback
             traceback.print_exc()
-
-    def listen(self):
-
-        detect = False
-
-        # Check voice commands
-        events = self.voice_client.pop()
-        for event in events:
-            event.unpack()
-            if event.index == 0:  # "detect" command
-                detect = True
-
-        return detect
-    
+  
     def run(self):
 
         objects = []
@@ -401,8 +311,6 @@ class HoloLensVoiceDetection:
         try:
 
             if current_time - self.last_detection_time >= DETECTION_COOLDOWN:
-                print("\nDetection triggered by voice command")
-                self.play_sound(DETECTION_SOUND_FREQ, DETECTION_SOUND_DURATION)
                 self.detection_active = True
                 objects, vis_frame = self.process_detection(frame, depth, data_pv, data_depth)
                 if objects is not None:
@@ -411,7 +319,6 @@ class HoloLensVoiceDetection:
                     print("Detection failed")
 
             else:
-                self.play_sound(ERROR_SOUND_FREQ, DETECTION_SOUND_DURATION)
                 print("\nPlease wait before next detection")
             
             # Show frame
@@ -424,6 +331,13 @@ class HoloLensVoiceDetection:
             print(f"Frame processing error: {str(e)}")
             return []
         
+        print("\nDetected objects:")
+        for (label, score, box), object in zip(boxes, objects):
+            if object is not None and not np.isnan(object.depth):
+                print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {object.depth:.2f} meters")
+            else:
+                print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
+
         return objects
 
     def cleanup(self):
@@ -432,11 +346,7 @@ class HoloLensVoiceDetection:
         try:
             cv2.destroyAllWindows()
             
-            if self.voice_client is not None:
-                self.voice_client.stop()
-                self.voice_client.clear()
-                self.voice_client.close()
-                
+                           
             if self.sink_pv:
                 self.sink_pv.detach()
             if self.sink_depth:
@@ -444,8 +354,7 @@ class HoloLensVoiceDetection:
             if self.producer:
                 self.producer.stop(hl2ss.StreamPort.PERSONAL_VIDEO)
                 self.producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
-            if self.tts_engine is not None:
-                self.tts_engine.stop()
+
             
             hl2ss_lnm.stop_subsystem_pv(HOST, hl2ss.StreamPort.PERSONAL_VIDEO)
                 
@@ -454,6 +363,6 @@ class HoloLensVoiceDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensVoiceDetection()
+    detector = HoloLensDetection()
     detector.start()
     detector.run()

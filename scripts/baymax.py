@@ -1,43 +1,39 @@
-from voice_triggered_detection import HoloLensVoiceDetection
+
+
+from triggered_detection import HoloLensDetection
 
 from pynput import keyboard
+from flask import jsonify, Flask
 
-enable = True
 
-class BayMax:
-     
-    def __init__(self):
-        self.detector = HoloLensVoiceDetection()
-        self.keyboard_listener = None
+flask_server = Flask(__name__)
 
-    def init_keyboard(self):
-        """Initialize keyboard listener"""
-        def on_press(key):
-            global enable
-            enable = key != keyboard.Key.esc
-            return enable
+@flask_server.route('/transform', methods=['GET'])
+def trigger_event():
+    try:
+         # Run detector and capture objects
+        objects = app.run()
+        print("Detector ran successfully")
+    except Exception as e:
+        print("Detector Failed:", e)
 
-        self.keyboard_listener = keyboard.Listener(on_press=on_press)
-        self.keyboard_listener.start()
-        print("Keyboard listener initialized")
+    print("Objects detected:", objects)
+
+    return jsonify(objects)
+
 
 if __name__ == '__main__':
+    # Start the Processor -----------------------------------------------------
+    app = HoloLensDetection(IP_ADDRESS="192.168.0.31")
+    app.start()
 
-    app = BayMax()
-    app.init_keyboard()
-    app.detector.start()
+    try:
+        flask_server.run(host="192.168.0.30", port=5000, debug=True)
+    finally:
 
-    while enable:
-        event = app.detector.listen()
-        if event:
-            try: objects = app.detector.run()
-            except Exception as e:
-                print(f"Detector Failed")
-                break
+        print("Stopping the Processor")
+        # Cleanup the detector ------------------------------------------------ 
+        app.cleanup()
 
-    app.detector.cleanup()
-
-    # Stop keyboard events ----------------------------------------------------
-    app.keyboard_listener.join()
 
 
