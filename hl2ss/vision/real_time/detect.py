@@ -26,16 +26,16 @@ current_dir = os.path.dirname(os.path.abspath(__file__)) # located in real_time
 parent_dir =  os.path.dirname(current_dir)
 
 detection_model_path = os.path.join(parent_dir, 'model', 'ssdlite_mobilenet_v2_fp16.xml')
-depth_model_path =  os.path.join(parent_dir, 'models_ov', 'depth_anything_v2_metric_vkitti_vits.xml')
+# depth_model_path =  os.path.join(parent_dir, 'models_ov', 'depth_anything_v2_metric_vkitti_vits.xml')
 
 
 detection_model = core.read_model(model=detection_model_path)
-depth_model = core.read_model(model=depth_model_path)
+# depth_model = core.read_model(model=depth_model_path)
 
 # Compile the model for CPU (you can choose manually CPU, GPU etc.)
 # or let the engine choose the best available device (AUTO).
 compiled_detection_model = core.compile_model(model=detection_model, device_name=device.value)
-compiled_depth_model = core.compile_model(model=depth_model,device_name=device.value)
+# compiled_depth_model = core.compile_model(model=depth_model,device_name=device.value)
 
 # Get the input and output nodes.
 input_layer = compiled_detection_model.input(0)
@@ -260,19 +260,19 @@ def get_detection_and_depth_frame(frame):
         detection_results['boxes'] = compiled_detection_model(input_img)[output_layer]
         detection_results['processed_boxes'] = process_results(frame=frame, results=detection_results['boxes'])
 
-    def run_depth_model():
-        input_tensor, image_size = utils.image_preprocess_depth(frame)
-        depth_results['depth'] = compiled_depth_model(input_tensor)[0]
-        depth_results['out_frame'], depth_results['metric_depth'] = utils.postprocess_depth(depth_results['depth'], image_size)
+    # def run_depth_model():
+    #     input_tensor, image_size = utils.image_preprocess_depth(frame)
+    #     depth_results['depth'] = compiled_depth_model(input_tensor)[0]
+    #     depth_results['out_frame'], depth_results['metric_depth'] = utils.postprocess_depth(depth_results['depth'], image_size)
 
     detection_thread = threading.Thread(target=run_detection_model)
-    depth_thread = threading.Thread(target=run_depth_model)
+    # depth_thread = threading.Thread(target=run_depth_model)
 
     detection_thread.start()
-    depth_thread.start()
+    # depth_thread.start()
 
     detection_thread.join()
-    depth_thread.join()
+    # depth_thread.join()
 
     return depth_results['out_frame'] , detection_results['processed_boxes'] , depth_results['metric_depth']
 
@@ -320,12 +320,12 @@ def draw_boxes(frame, boxes):
     return frame
 
 
-def get_depth_frame(input_frame):
-
-    input_tensor, image_size = utils.image_preprocess(input_frame)
-    model_out = compiled_depth_model(input_tensor)[0]
-
-    return utils.postprocess(model_out, image_size)
+# def get_depth_frame(input_frame):
+#
+#     input_tensor, image_size = utils.image_preprocess(input_frame)
+#     model_out = compiled_depth_model(input_tensor)[0]
+#
+#     return utils.postprocess(model_out, image_size)
 
 # Main processing function to run object detection with webcam.
 def run_object_detection(source=0, flip=False, use_popup=True, skip_first_frames=0):
