@@ -1,6 +1,7 @@
 import collections
 import time
 from pathlib import Path
+import json
 
 import cv2
 import numpy as np
@@ -33,6 +34,19 @@ class Object:
         top_right = (x + w, y + h)
         
         return [bottom_left, bottom_right, top_right, top_left]
+
+def objects_to_json(objects: List[Object]) -> str:
+    data = []
+    for obj in objects:
+        obj_data = {
+            "label": obj.label,
+            "center": obj.center,
+            "depth": obj.depth,
+            "world_pose": obj.world_pose,
+        }
+        data.append(obj_data)
+    return json.dumps(data, indent=4)
+
 
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
     """
