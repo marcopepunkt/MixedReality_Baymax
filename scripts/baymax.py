@@ -4,6 +4,7 @@ from triggered_detection import HoloLensDetection
 
 from pynput import keyboard
 from flask import jsonify, Flask
+from utils import objects_to_json
 
 
 flask_server = Flask(__name__)
@@ -22,7 +23,7 @@ def trigger_event():
 
     print("Objects detected:", objects)
 
-    return jsonify(objects)
+    return objects_to_json(objects)
 
 
 if __name__ == '__main__':
