@@ -24,7 +24,7 @@ import openvino as ov
 import utils
 
 # Settings
-HOST = '192.168.0.31'
+HOST = '169.254.174.24'
 CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
 PV_HEIGHT = 360

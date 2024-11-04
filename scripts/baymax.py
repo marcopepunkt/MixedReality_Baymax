@@ -12,6 +12,9 @@ flask_server = Flask(__name__)
 def trigger_event():
     try:
          # Run detector and capture objects
+        #print(type(app))
+        #
+        print(app.height)
         objects = app.run()
         print("Detector ran successfully")
     except Exception as e:
@@ -24,11 +27,11 @@ def trigger_event():
 
 if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
-    app = HoloLensDetection(IP_ADDRESS="192.168.0.31")
+    app = HoloLensDetection(IP_ADDRESS="169.254.174.24")
     app.start()
 
     try:
-        flask_server.run(host="192.168.0.30", port=5000, debug=True)
+        flask_server.run(host="127.0.0.1", port=5000, debug=False)
     finally:
 
         print("Stopping the Processor")
