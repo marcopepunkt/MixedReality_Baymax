@@ -74,7 +74,7 @@ class HoloLensDetection:
         self.core = ov.Core()
         current_dir = os.path.dirname(os.path.abspath(__file__))
         parent_dir = os.path.dirname(current_dir)
-        detection_model_path = os.path.join(parent_dir, 'model', 'ssdlite_mobilenet_v2_fp16.xml')
+        detection_model_path = os.path.join(current_dir, 'model', 'ssdlite_mobilenet_v2_fp16.xml')
         
         # Create calibration directory if it doesn't exist
         os.makedirs(CALIBRATION_PATH, exist_ok=True)
