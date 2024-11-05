@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from IPython import display
 import openvino as ov
+from flask import jsonify
 from openvino.tools import mo
 
 from typing import List, Tuple
@@ -14,6 +15,119 @@ from typing import List, Tuple
 import threading
 
 import os
+
+classes = [
+    "background",
+    "person",
+    "bicycle",
+    "car",
+    "motorcycle",
+    "airplane",
+    "bus",
+    "train",
+    "truck",
+    "boat",
+    "traffic light",
+    "fire hydrant",
+    "street sign",
+    "stop sign",
+    "parking meter",
+    "bench",
+    "bird",
+    "cat",
+    "dog",
+    "horse",
+    "sheep",
+    "cow",
+    "elephant",
+    "bear",
+    "zebra",
+    "giraffe",
+    "hat",
+    "backpack",
+    "umbrella",
+    "shoe",
+    "eye glasses",
+    "handbag",
+    "tie",
+    "suitcase",
+    "frisbee",
+    "skis",
+    "snowboard",
+    "sports ball",
+    "kite",
+    "baseball bat",
+    "baseball glove",
+    "skateboard",
+    "surfboard",
+    "tennis racket",
+    "bottle",
+    "plate",
+    "wine glass",
+    "cup",
+    "fork",
+    "knife",
+    "spoon",
+    "bowl",
+    "banana",
+    "apple",
+    "sandwich",
+    "orange",
+    "broccoli",
+    "carrot",
+    "hot dog",
+    "pizza",
+    "donut",
+    "cake",
+    "chair",
+    "couch",
+    "potted plant",
+    "bed",
+    "mirror",
+    "dining table",
+    "window",
+    "desk",
+    "toilet",
+    "door",
+    "tv",
+    "laptop",
+    "mouse",
+    "remote",
+    "keyboard",
+    "cell phone",
+    "microwave",
+    "oven",
+    "toaster",
+    "sink",
+    "refrigerator",
+    "blender",
+    "book",
+    "clock",
+    "vase",
+    "scissors",
+    "teddy bear",
+    "hair drier",
+    "toothbrush",
+    "hair brush",
+]
+
+classes_with_priority = {
+    "bus": 1,
+    "car": 1,
+    "motorcycle": 1,
+    "pedestrian": 1,
+    "stop_sign": 2,
+    "traffic_light": 2,
+    "fire_hydrant": 3,
+    "person": 1,
+    "train": 1,
+    "truck": 1,
+}
+
+for cls in classes:
+    # If the class is not already in the mapping, set it to 3
+    classes_with_priority.setdefault(cls, 3)
+
 
 class Object:
     def __init__(self, label, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
@@ -35,17 +149,33 @@ class Object:
         
         return [bottom_left, bottom_right, top_right, top_left]
 
-def objects_to_json(objects: List[Object]) -> str:
+# def objects_to_json(objects: List[Object]) -> str:
+#     data = []
+#     for obj in objects:
+#         obj_data = {
+#             "label": int(obj.label),
+#             "center": obj.center,
+#             "depth": obj.depth,
+#             "world_pose": obj.world_pose,
+#         }
+#         data.append(obj_data)
+#     return json.dumps(data, indent=4)
+
+def objects_to_json(objects: List[Object]):
+    if objects is None:
+        return json.dumps([])
     data = []
     for obj in objects:
         obj_data = {
-            "label": obj.label,
-            "center": obj.center,
-            "depth": obj.depth,
-            "world_pose": obj.world_pose,
+            'class_name': classes[obj.label],
+            'priority': int(classes_with_priority.get(classes[obj.label])),
+            'x': float(obj.world_pose[0]),
+            'y': float(obj.world_pose[1]),
+            'z': float(obj.world_pose[2]), # TODO: what about obj.depth?
         }
         data.append(obj_data)
-    return json.dumps(data, indent=4)
+    data.sort(key=lambda t: (t['priority'], t['z']))
+    return jsonify(data)
 
 
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
@@ -146,97 +276,3 @@ def process_results(frame, results, thresh=0.6):
     # Filter detected objects.
     return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
 
-classes = [
-    "background",
-    "person",
-    "bicycle",
-    "car",
-    "motorcycle",
-    "airplane",
-    "bus",
-    "train",
-    "truck",
-    "boat",
-    "traffic light",
-    "fire hydrant",
-    "street sign",
-    "stop sign",
-    "parking meter",
-    "bench",
-    "bird",
-    "cat",
-    "dog",
-    "horse",
-    "sheep",
-    "cow",
-    "elephant",
-    "bear",
-    "zebra",
-    "giraffe",
-    "hat",
-    "backpack",
-    "umbrella",
-    "shoe",
-    "eye glasses",
-    "handbag",
-    "tie",
-    "suitcase",
-    "frisbee",
-    "skis",
-    "snowboard",
-    "sports ball",
-    "kite",
-    "baseball bat",
-    "baseball glove",
-    "skateboard",
-    "surfboard",
-    "tennis racket",
-    "bottle",
-    "plate",
-    "wine glass",
-    "cup",
-    "fork",
-    "knife",
-    "spoon",
-    "bowl",
-    "banana",
-    "apple",
-    "sandwich",
-    "orange",
-    "broccoli",
-    "carrot",
-    "hot dog",
-    "pizza",
-    "donut",
-    "cake",
-    "chair",
-    "couch",
-    "potted plant",
-    "bed",
-    "mirror",
-    "dining table",
-    "window",
-    "desk",
-    "toilet",
-    "door",
-    "tv",
-    "laptop",
-    "mouse",
-    "remote",
-    "keyboard",
-    "cell phone",
-    "microwave",
-    "oven",
-    "toaster",
-    "sink",
-    "refrigerator",
-    "blender",
-    "book",
-    "clock",
-    "vase",
-    "scissors",
-    "teddy bear",
-    "hair drier",
-    "toothbrush",
-    "hair brush",
-]

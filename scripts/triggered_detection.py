@@ -24,7 +24,6 @@ import openvino as ov
 import utils
 
 # Settings
-HOST = '169.254.174.24'
 CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
 PV_HEIGHT = 360
@@ -51,7 +50,7 @@ DETECTION_COOLDOWN = 2
 
 class HoloLensDetection:
     def __init__(self, IP_ADDRESS):
-        HOST = IP_ADDRESS
+        self.HOST = IP_ADDRESS
 
         self.producer = None
         self.consumer = None
@@ -67,8 +66,6 @@ class HoloLensDetection:
         self.detection_active = False
         self.detection_results = []
         self.last_detection_time = time.time()
-
-      
 
         # Initialize OpenVINO
         self.core = ov.Core()
@@ -90,11 +87,11 @@ class HoloLensDetection:
     def init_streams(self):
         """Initialize HoloLens streams"""
         try:
-            hl2ss_lnm.start_subsystem_pv(HOST, hl2ss.StreamPort.PERSONAL_VIDEO, shared=True)
+            hl2ss_lnm.start_subsystem_pv(self.HOST, hl2ss.StreamPort.PERSONAL_VIDEO, shared=True)
             print("PV subsystem started")
 
             global calibration_lt
-            calibration_lt = hl2ss_3dcv.get_calibration_rm(HOST, 
+            calibration_lt = hl2ss_3dcv.get_calibration_rm(self.HOST,
                                                           hl2ss.StreamPort.RM_DEPTH_LONGTHROW, 
                                                           CALIBRATION_PATH)
             
@@ -105,13 +102,13 @@ class HoloLensDetection:
 
             self.producer = hl2ss_mp.producer()
             self.producer.configure(hl2ss.StreamPort.PERSONAL_VIDEO, 
-                                  hl2ss_lnm.rx_pv(HOST, 
+                                  hl2ss_lnm.rx_pv(self.HOST,
                                                  hl2ss.StreamPort.PERSONAL_VIDEO, 
                                                  width=PV_WIDTH, 
                                                  height=PV_HEIGHT, 
                                                  framerate=PV_FRAMERATE))
             self.producer.configure(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, 
-                                  hl2ss_lnm.rx_rm_depth_longthrow(HOST, 
+                                  hl2ss_lnm.rx_rm_depth_longthrow(self.HOST,
                                                                  hl2ss.StreamPort.RM_DEPTH_LONGTHROW))
             
             self.producer.initialize(hl2ss.StreamPort.PERSONAL_VIDEO, 
@@ -242,42 +239,45 @@ class HoloLensDetection:
 
             mapped_boxes = utils.remap_bounding_boxes(boxes,frame,uv_map)
             objects = utils.estimate_box_poses(sensor_depth,mapped_boxes)
-            vis_frame = self.draw_detection_results(frame, boxes, objects)
+            # vis_frame = self.draw_detection_results(frame, boxes, objects)
 
             if len(objects) > 0:
                 depth_to_world = hl2ss_3dcv.camera_to_rignode(calibration_lt.extrinsics) @ hl2ss_3dcv.reference_to_world(depth_data.pose)
                 self.post_process_objects(sensor_depth,objects,self.xy1,depth_to_world)
 
             print("\nDetected objects:")
-            for (label, score, box), object in zip(boxes, objects):
-                if object is not None and not np.isnan(object.depth):
-                    print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {object.depth:.2f} meters")
-                else:
-                    print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
+            print(f"boxes: {boxes}")
+            print(f"objects: {objects}")
+            if len(objects) == 0:
+                print("No objects detected :(")
+                return None, frame
+            else:
+                for (label, score, box), object in zip(boxes, objects):
+                    if object is not None and not np.isnan(object.depth):
+                        print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {object.depth:.2f} meters")
+                    else:
+                        print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
 
-            return objects, vis_frame
+            return objects
 
         except Exception as e:
             print(f"Detection error: {str(e)}")
-            return None, None, frame
+            return None
 
     def start(self):
-
         try:
             print("Initializing...")
             self.init_streams()
-            
-            cv2.namedWindow("HoloLens Detection", cv2.WINDOW_NORMAL)
-
+            # cv2.namedWindow("HoloLens Detection", cv2.WINDOW_NORMAL)
             print("Ready!")
-
 
         except Exception as e:
             print(f"Runtime error: {str(e)}")
             import traceback
             traceback.print_exc()
-  
+
     def run(self):
+        print("Starting object detection!")
 
         objects = []
 
@@ -301,7 +301,7 @@ class HoloLensDetection:
             #print("Invalid frame")
             return []
         
-        vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+        # vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
         
         depth = data_depth.payload.depth
         if depth is None:
@@ -309,10 +309,10 @@ class HoloLensDetection:
             return []
         
         try:
-
             if current_time - self.last_detection_time >= DETECTION_COOLDOWN:
                 self.detection_active = True
-                objects, vis_frame = self.process_detection(frame, depth, data_pv, data_depth)
+                print("Starting process_detection")
+                objects = self.process_detection(frame, depth, data_pv, data_depth)
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
@@ -322,21 +322,14 @@ class HoloLensDetection:
                 print("\nPlease wait before next detection")
             
             # Show frame
-            if vis_frame is not None:
-                vis_frame = cv2.cvtColor(vis_frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
-                cv2.imshow("HoloLens Detection", vis_frame)
-                cv2.waitKey(1)
+            # if vis_frame is not None:
+            #     vis_frame = cv2.cvtColor(vis_frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+                # cv2.imshow("HoloLens Detection", vis_frame)
+                # cv2.waitKey(1)
 
         except Exception as e:
             print(f"Frame processing error: {str(e)}")
             return []
-        
-        print("\nDetected objects:")
-        for (label, score, box), object in zip(boxes, objects):
-            if object is not None and not np.isnan(object.depth):
-                print(f"- {utils.classes[label]} (confidence: {score:.2f}) at {object.depth:.2f} meters")
-            else:
-                print(f"- {utils.classes[label]} (confidence: {score:.2f}) at unknown distance")
 
         return objects
 
@@ -344,9 +337,8 @@ class HoloLensDetection:
         """Cleanup resources"""
         print("\nCleaning up...")
         try:
-            cv2.destroyAllWindows()
-            
-                           
+            # cv2.destroyAllWindows()
+
             if self.sink_pv:
                 self.sink_pv.detach()
             if self.sink_depth:
@@ -356,7 +348,7 @@ class HoloLensDetection:
                 self.producer.stop(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
 
             
-            hl2ss_lnm.stop_subsystem_pv(HOST, hl2ss.StreamPort.PERSONAL_VIDEO)
+            hl2ss_lnm.stop_subsystem_pv(self.HOST, hl2ss.StreamPort.PERSONAL_VIDEO)
                 
             print("Cleanup completed")
         except Exception as e:
