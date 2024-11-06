@@ -17,6 +17,9 @@ def trigger_event():
         print("Detector ran successfully")
     except Exception as e:
         print("Detector Failed:", e)
+        # TODO: if model doesn't detect any objects, send a text "No objects detected" to the unity app
+        #   and output it with voice to the user. maybe we can add another string attribute to class
+        #   Transformation in unity.
 
     print("Final objects detected:", objects)
 
