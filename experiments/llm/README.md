@@ -9,7 +9,11 @@
 GOOGLE_API_KEY=your_actual_api_key_here*
 ```
 3. Never commit API keys to version control! So add `.env` to your `.gitignore` file if you're using git
-4. run the script to say hello to the genemi agent
+4. run the script to say hello and send a sample image to the genemi agent
 ```bash
-python helloworld.py
+python gemini_agent.py
+```
+or run following script to interact with the gemini agent with GUI
+```bash
+python gemini_gui.py
 ```
