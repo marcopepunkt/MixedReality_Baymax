@@ -77,6 +77,7 @@ class GripperSimulator(GripperController):
             self.time_start = time.monotonic()
             print("Simulation started at time: ", self.time_start)
             set_camera_view = False
+            viewer.cam.distance = 1.5
             while viewer.is_running():  
 
                 # Get joint angles command from the controller
@@ -108,17 +109,11 @@ class GripperSimulator(GripperController):
                     viewer.sync()
     @staticmethod
     def reorder_quaternion(q):
-        
         """
-        Convert quaternion from XYZW to WXYZ order and correct the axes:
-        - Negate X rotation (roll)
-        - Swap Y and Z rotations
-        Input q: [x, y, z, w]
-        Output: [w, -x, z, y]  # WXZY with negated X
+        Convert quaternion from XYZW (hololens) to WXYZ (mujoco) order and correct the axes:
+        Input q: [x, y, z, w] 
+        Output: [w, x, -z, y]  # Only Z is negated
         """
-        #return np.array([q[3], q[0], q[2], q[1]]) # only y inversed.
-        # return np.array([q[3], -q[0], -q[1], q[2]])  #rotation around x (roll) will be in negative x direction. Rotation in y and z will swap
-
         return np.array([q[3], q[0], -q[2], q[1]])
    
         
