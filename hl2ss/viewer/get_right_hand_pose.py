@@ -138,6 +138,11 @@ def get_finger_joint_positions(hand, finger_name):
             'distal': hand.get_joint_pose(joints[3]).position,
             'tip': hand.get_joint_pose(joints[3]).position
         }
+    elif finger_name == 'wrist':
+        joint_positions = {
+            'wrist_pos': hand.get_joint_pose(joints[0]).position,
+            'wrist_orient': hand.get_joint_pose(joints[0]).orientation
+        }
     else:
         joint_positions = {
             'metacarpal': hand.get_joint_pose(joints[0]).position,

@@ -20,7 +20,7 @@ from get_right_hand_pose import (
 from mujoco_hand_simulator import GripperSimulator
 
 class HoloLensHandBridge:
-    def __init__(self, host="169.254.174.24"):
+    def __init__(self, host="10.1.0.143"):
         self.host = host
         self.enable = True
         self.command_queue = multiprocessing.Queue()
@@ -97,7 +97,12 @@ class HoloLensHandBridge:
 
                 if si.is_valid_hand_right():
                     hand_right = si.get_hand_right()
+                    if not hand_right:
+                        hand_right = si.get_hand_left() # Use left hand if right hand is not detected
+
                     palm_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Palm).position
+                    wrist_position = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist).position
+                    wrist_orientation = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.Wrist).orientation
                     
                     # Calculate palm normal
                     middle_metacarpal = hand_right.get_joint_pose(hl2ss.SI_HandJointKind.MiddleMetacarpal).position
@@ -125,7 +130,7 @@ class HoloLensHandBridge:
                         mujoco_joint_angles.append(normalized_angle)
 
                     # Send joint angles to MuJoCo simulator
-                    self.command_queue.put(np.array(mujoco_joint_angles))
+                    self.command_queue.put((np.array(mujoco_joint_angles), wrist_position, wrist_orientation))    
                     
                     print(f"Sent joint angles to MuJoCo at time {data.timestamp}")
                 else:

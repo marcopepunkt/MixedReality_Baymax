@@ -81,12 +81,19 @@ class GripperSimulator(GripperController):
 
                 # Get joint angles command from the controller
                 try:
-                    joint_angles = self.command_queue.get_nowait()  # Non-blocking call to get new data
+                    joint_angles, wrist_position, wrist_orientation  = self.command_queue.get_nowait()  # Non-blocking call to get new data
+                    
                     assert len(joint_angles) == self.num_of_joints
                     self.joint_pos_command = joint_angles
+                    
                     self.time_elapsed = time.monotonic() - self.time_start
+
+                    print(wrist_position, wrist_orientation)
                 
                     self.data.ctrl[-len(self.joint_pos_command):] = self.joint_pos_command
+                    self.data.mocap_pos[0] = wrist_position
+                    self.data.mocap_quat[0] = wrist_orientation
+
                     #print("Joint angles received and applied to simulation:", self.joint_pos_array)
                 except multiprocessing.queues.Empty:
                     pass
