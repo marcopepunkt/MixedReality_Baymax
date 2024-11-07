@@ -76,7 +76,7 @@ class GripperSimulator(GripperController):
         with mujoco.viewer.launch_passive(self.model, self.data, key_callback = key_callback) as viewer: 
             self.time_start = time.monotonic()
             print("Simulation started at time: ", self.time_start)
-
+            set_camera_view = False
             while viewer.is_running():  
 
                 # Get joint angles command from the controller
@@ -88,11 +88,15 @@ class GripperSimulator(GripperController):
                     
                     self.time_elapsed = time.monotonic() - self.time_start
 
-                    print(wrist_position, wrist_orientation)
+                    if not set_camera_view:
+                        viewer.cam.lookat = wrist_position
+                        set_camera_view = True
                 
                     self.data.ctrl[-len(self.joint_pos_command):] = self.joint_pos_command
                     self.data.mocap_pos[0] = wrist_position
-                    self.data.mocap_quat[0] = wrist_orientation
+                    self.data.mocap_quat[0] = self.reorder_quaternion(wrist_orientation)
+
+                    print(wrist_orientation)
 
                     #print("Joint angles received and applied to simulation:", self.joint_pos_array)
                 except multiprocessing.queues.Empty:
@@ -102,9 +106,20 @@ class GripperSimulator(GripperController):
                 mujoco.mj_step(self.model, self.data) 
                 with viewer.lock():           
                     viewer.sync()
+    @staticmethod
+    def reorder_quaternion(q):
+        
+        """
+        Convert quaternion from XYZW to WXYZ order and correct the axes:
+        - Negate X rotation (roll)
+        - Swap Y and Z rotations
+        Input q: [x, y, z, w]
+        Output: [w, -x, z, y]  # WXZY with negated X
+        """
+        #return np.array([q[3], q[0], q[2], q[1]]) # only y inversed.
+        # return np.array([q[3], -q[0], -q[1], q[2]])  #rotation around x (roll) will be in negative x direction. Rotation in y and z will swap
 
-
-
+        return np.array([q[3], q[0], -q[2], q[1]])
    
         
 
