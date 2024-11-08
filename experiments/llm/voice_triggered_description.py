@@ -297,10 +297,21 @@ class HoloLensSceneDescription:
         try:
             if frame is None:
                 return None
+            
+            # Create a window to show original BGRA frame
+            cv2.namedWindow("Original BGRA Frame", cv2.WINDOW_NORMAL)
+            cv2.imshow("Original BGRA Frame", frame)
 
             # Convert BGRA to BGR if necessary
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+
+            
+
+            # Show the BGR frame that will be sent to Gemini
+            cv2.namedWindow("Frame Sent to Gemini", cv2.WINDOW_NORMAL)
+            cv2.imshow("Frame Sent to Gemini", frame)
+            cv2.waitKey(1)  # Update the display
 
             # Get scene description from Gemini
             description = self.gemini_client.analyze_image(frame, self.default_prompt)
@@ -348,78 +359,51 @@ class HoloLensSceneDescription:
             self.init_voice()
             self.init_streams()
             
-            # Create window in a separate thread to avoid blocking
-            window_thread = threading.Thread(target=self.create_window)
-            window_thread.start()
-            window_thread.join(timeout=5)  # Wait up to 5 seconds for window creation
+            # Initialize tkinter window
+            import tkinter as tk
+            from PIL import Image, ImageTk
+            
+            root = tk.Tk()
+            root.title("HoloLens View")
+            label = tk.Label(root)
+            label.pack()
+            
+            def update_image():
+                try:
+                    if hasattr(self, 'latest_frame') and self.latest_frame is not None:
+                        # Convert BGRA to RGB
+                        rgb_frame = cv2.cvtColor(self.latest_frame, cv2.COLOR_BGRA2RGB)
+                        # Convert to PIL Image
+                        image = Image.fromarray(rgb_frame)
+                        # Convert to PhotoImage
+                        photo = ImageTk.PhotoImage(image=image)
+                        # Update label
+                        label.configure(image=photo)
+                        label.image = photo  # Keep a reference
+                    root.after(33, update_image)  # Update every ~30ms
+                except Exception as e:
+                    print(f"Display error: {e}")
+                    root.after(33, update_image)
+            
+            update_image()
             
             print("Ready! Say 'describe' to get a scene description.")
-         
             
-            frame_count = 0
-            last_time = time.time()
-            self.last_description_time = 0
-            
-            while enable:
+            def process_frames():
                 try:
-                    current_time = time.time()
-                    
                     # Get PV frame
                     _, data_pv = self.sink_pv.get_most_recent_frame()
-                    if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
-                        continue
-
-                    # Get frame and check if it's valid
-                    frame = data_pv.payload.image
-                    if frame is None:
-                        continue
-
-                    # Store latest valid frame
-                    self.latest_frame = frame
-
-                    # Create visualization frame
-                    vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-
-                    # Check voice commands
-                    self.check_voice_commands()
-
-                    # Add status text to frame
-                    status_text = "Description Active" if self.description_active else "Say 'describe' for scene description"
-                    cv2.putText(vis_frame, status_text,
-                            (10, vis_frame.shape[0] - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            0.7,
-                            (0, 255, 0) if self.description_active else (0, 0, 255),
-                            2)
-
-                    # Show frame if window was created successfully
-                    if hasattr(self, 'window_created') and self.window_created:
-                        # Add status text to frame
-                        status_text = "Description Active" if self.description_active else "Say 'describe' for scene description"
-                        cv2.putText(vis_frame, status_text,
-                                (10, vis_frame.shape[0] - 10),
-                                cv2.FONT_HERSHEY_SIMPLEX,
-                                0.7,
-                                (0, 255, 0) if self.description_active else (0, 0, 255),
-                                2)
-
-                        try:
-                            cv2.imshow("HoloLens View", vis_frame)
-                            cv2.waitKey(1)
-                        except Exception as e:
-                            print(f"Error showing frame: {e}")
-                    
-                    # Calculate and print FPS every second
-                    frame_count += 1
-                    if current_time - last_time >= 1.0:
-                        fps = frame_count / (current_time - last_time)
-                        print(f"\rFPS: {fps:.2f}", end="")
-                        frame_count = 0
-                        last_time = current_time
-
+                    if data_pv is not None and hl2ss.is_valid_pose(data_pv.pose):
+                        frame = data_pv.payload.image
+                        if frame is not None:
+                            self.latest_frame = frame
+                    root.after(1, process_frames)
                 except Exception as e:
-                    print(f"Frame processing error: {str(e)}")
-                    continue
+                    print(f"Frame processing error: {e}")
+                    root.after(1, process_frames)
+            
+            process_frames()
+            root.mainloop()
 
         except Exception as e:
             print(f"Runtime error: {str(e)}")
@@ -427,11 +411,14 @@ class HoloLensSceneDescription:
             traceback.print_exc()
         finally:
             self.cleanup()
+
+
     def cleanup(self):
         """Cleanup resources"""
         print("\nCleaning up...")
         try:
             cv2.destroyAllWindows()
+            cv2.waitKey(1)  # Give time for windows to close
             
             if self.voice_client is not None:
                 self.voice_client.stop()
@@ -458,5 +445,9 @@ class HoloLensSceneDescription:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
+
+
+
+
     descriptor = HoloLensSceneDescription()
     descriptor.run()

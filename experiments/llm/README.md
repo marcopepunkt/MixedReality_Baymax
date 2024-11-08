@@ -9,7 +9,10 @@
 GOOGLE_API_KEY=your_actual_api_key_here*
 ```
 3. Never commit API keys to version control! So add `.env` to your `.gitignore` file if you're using git
-4. run the script to say hello and send a sample image to the genemi agent
+
+
+### Usage
+1. after setting up the api, run the script to say hello and send a sample image to the genemi agent
 ```bash
 python gemini_agent.py
 ```
@@ -17,3 +20,9 @@ or run following script to interact with the gemini agent with GUI
 ```bash
 python gemini_gui.py
 ```
+
+2. launch hl2ss app on hololens and then run
+```bash
+ython voice_triggered_description.py 
+```
+say 'describe' after the terminal shows 'Ready! Say 'describe' to get a scene description.', then you will hear a audio output from the PC reading the response from Gemini
