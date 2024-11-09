@@ -162,7 +162,7 @@ class Object:
 #     return json.dumps(data, indent=4)
 
 def objects_to_json(objects: List[Object]):
-    if objects is None:
+    if len(objects) == 0:
         return json.dumps([])
     data = []
     for obj in objects:
@@ -171,10 +171,11 @@ def objects_to_json(objects: List[Object]):
             'priority': int(classes_with_priority.get(classes[obj.label])),
             'x': float(obj.world_pose[0]),
             'y': float(obj.world_pose[1]),
-            'z': float(obj.world_pose[2]), # TODO: what about obj.depth?
+            'z': float(obj.world_pose[2]),
+            'depth': float(obj.depth),
         }
         data.append(obj_data)
-    data.sort(key=lambda t: (t['priority'], t['z']))
+    data.sort(key=lambda t: (t['priority'], t['depth']))
     return jsonify(data)
 
 

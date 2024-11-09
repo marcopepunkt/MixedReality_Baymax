@@ -221,7 +221,7 @@ class HoloLensDetection:
         """Process detection on current frame"""
         try:
             if frame is None:
-                return None, None, None
+                return None
         
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
@@ -250,7 +250,7 @@ class HoloLensDetection:
             print(f"objects: {objects}")
             if len(objects) == 0:
                 print("No objects detected :(")
-                return None, frame
+                return None
             else:
                 for (label, score, box), object in zip(boxes, objects):
                     if object is not None and not np.isnan(object.depth):
@@ -316,7 +316,7 @@ class HoloLensDetection:
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
-                    print("Detection failed")
+                    return []
 
             else:
                 print("\nPlease wait before next detection")
