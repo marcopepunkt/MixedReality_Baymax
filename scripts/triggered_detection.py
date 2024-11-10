@@ -331,7 +331,8 @@ class HoloLensDetection:
                 "content": "You are an AI assistant that helps people find information."
             },
             {"role": "user",
-             "content": f"Construct full sentences with this text, that are more user-friendly: {image_description}"}
+             "content": f"Construct full sentences with this text, that are more user-friendly: {image_description}"
+            }
         ]
 
         completion = openai.ChatCompletion.create(engine="model-gpt-35-turbo-16k",
