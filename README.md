@@ -10,3 +10,9 @@ to run unity app and `baymax.py`:
 - update the path to the object detection model in `triggered_detection.py` if necessary
 - now run `baymax.py` and start the unity app on hololens. don't wait too much in between; otherwise it can't initialize stream from hololens to pc.
 - after the flask server is on, you can say "detect"
+
+Azure TTS, Computer Vision, OpenAI:
+- right now the code calls Azure TTS (in Unity app) and Azure Computer Vision resources
+- make an account on Azure
+- `Create a Resource` on left sidebar, search `Speech Services` (for TTS), `Computer Vision`, `OpenAI`. create one each, wait until they are deployed
+- get their keys, resource names, write them on `triggered_detection.py` and `VoiceCommandHandler.cs` in unity app
