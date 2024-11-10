@@ -73,14 +73,14 @@ client = ComputerVisionClient(
     credentials=credentials
 )
 
-# use either Azure OpenAI or OpenAI (chatgpt) API
+# TODO: use either Azure OpenAI or OpenAI (chatgpt) API
 # Azure OpenAI
-# TODO: insert Azure OpenAI name, key and uncomment them
+# TODO: insert Azure OpenAI name, key
 # i can't call the openAI now with this code :(
 openai.api_type = "azure"
 openai.api_base = "https://<resource name>.openai.azure.com/"
 openai.api_version = "2021-04-30"
-# openai.api_key = "<key>"
+openai.api_key = "<key>"
 
 # TODO: insert openAI (chatgpt) key:
 # openai_key = "<key>"
