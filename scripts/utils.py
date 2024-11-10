@@ -161,9 +161,22 @@ class Object:
 #         data.append(obj_data)
 #     return json.dumps(data, indent=4)
 
-def objects_to_json(objects: List[Object]):
-    if len(objects) == 0:
-        return json.dumps([])
+def objects_to_json(objects: List[Object], image_description):
+    if len(objects) == 0: # no objects detected, just send description to unity
+        if image_description is None:
+            return json.dumps([])
+
+        data = [{
+            'class_name': "none",
+            'priority': -1,
+            'x': -1,
+            'y': -1,
+            'z': -1,
+            'depth': -1,
+            'description': image_description,
+        }]
+        return jsonify(data)
+
     data = []
     for obj in objects:
         obj_data = {
@@ -173,6 +186,7 @@ def objects_to_json(objects: List[Object]):
             'y': float(obj.world_pose[1]),
             'z': float(obj.world_pose[2]),
             'depth': float(obj.depth),
+            'description': image_description,
         }
         data.append(obj_data)
     data.sort(key=lambda t: (t['priority'], t['depth']))

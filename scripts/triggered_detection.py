@@ -9,6 +9,8 @@ import torch
 import winsound
 import multiprocessing as mp
 from datetime import datetime
+import requests
+import json
 
 import pyttsx3
 import threading
@@ -22,6 +24,18 @@ import hl2ss_3dcv
 # Import detection utilities
 import openvino as ov
 import utils
+
+# for Azure Computer Vision (object detection) model:
+from azure.cognitiveservices.vision.computervision import ComputerVisionClient
+from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
+from msrest.authentication import CognitiveServicesCredentials
+
+#for Azure OpenAI
+import openai
+
+# image to byte
+from PIL import Image
+import io
 
 # Settings
 CALIBRATION_PATH = "./calibration"
@@ -47,6 +61,26 @@ enable = True
 calibration_lt = None
 last_detection_time = 0
 DETECTION_COOLDOWN = 2
+
+# Azure Computer Vision:
+region = "switzerlandnorth"
+endpoint = "https://baymaxcv.cognitiveservices.azure.com/"
+key = "RDUsQ9sjNNm8iq64g7ys2fUT63jalOJYxByykhAYjA2TTsDWIyNFJQQJ99AKACI8hq2XJ3w3AAAFACOG07X7"
+credentials = CognitiveServicesCredentials(key)
+client = ComputerVisionClient(
+    endpoint=endpoint,
+    credentials=credentials
+)
+
+# Azure OpenAI
+openai.api_type = "azure"
+openai.api_base = "https://baymaxopenai.openai.azure.com/"
+openai.api_version = "2021-04-30"
+openai.api_key = "E3XDVx6dBQ3vPgjQkYYbTKMkjdRcel0eJOAdSeHZBLmObDgXL0duJQQJ99AKACI8hq2XJ3w3AAABACOGdk09"
+
+# openAI (chatgpt) key:
+openai_key = "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"
+
 
 class HoloLensDetection:
     def __init__(self, IP_ADDRESS):
@@ -264,6 +298,55 @@ class HoloLensDetection:
             print(f"Detection error: {str(e)}")
             return None
 
+    def get_image_description_from_azureCV(self, frame):
+        # Convert the NumPy array to a PIL Image
+        frame = Image.fromarray(frame.astype('uint8'), 'RGB')
+        # Save the image to an in-memory byte stream
+        image_stream = io.BytesIO()
+        frame.save(image_stream, format="JPEG")  # Save as JPEG or PNG
+        image_stream.seek(0)  # Move the cursor to the beginning of the stream
+
+        # Call the Azure Computer Vision API
+        description_result = client.describe_image_in_stream(image_stream)
+
+        # Process and print the description
+        if description_result.captions:
+            description = description_result.captions[0].text
+            confidence = description_result.captions[0].confidence
+            print(f"type description: {type(description)}")
+            print(f"Description: {description}")
+            print(f"Confidence: {confidence}")
+            return description
+        else:
+            print("No description available from azureCV for this frame.")
+            return None
+
+    def get_friendly_text_from_openAI(self, image_description):
+        message_text = [
+            {
+                "role": "system",
+                "content": "You are an AI assistant that helps people find information."
+            },
+            {"role": "user",
+             "content": f"Construct full sentences with this text, that are more user-friendly: {image_description}"}
+        ]
+
+        completion = openai.ChatCompletion.create(engine="model-gpt-35-turbo-16k",
+                                                  messages=message_text,
+                                                  temperature=0.7,
+                                                  max_tokens=800,
+                                                  top_p=0.95,
+                                                  frequency_penalty=0,
+                                                  presence_penalty=0,
+                                                  stop=None)
+        if completion is not None:
+            print(f"chatgpt response: {completion}")
+            print(completion["message"]['content'])
+            return completion["message"]['content']
+        else:
+            print("Could not get response from chatgpt.")
+            return None
+
     def start(self):
         try:
             print("Initializing...")
@@ -287,26 +370,30 @@ class HoloLensDetection:
         _, data_depth = self.sink_depth.get_most_recent_frame()
         if data_depth is None or not hl2ss.is_valid_pose(data_depth.pose):
             print("No valid depth frame")
-            return []
+            return [], None
 
         # Get PV frame
         _, data_pv = self.sink_pv.get_nearest(data_depth.timestamp)
         if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
             print("No valid PV frame")
-            return []
+            return [], None
 
         # Get frame and check if it's valid
         frame = data_pv.payload.image
         if frame is None:
             #print("Invalid frame")
-            return []
-        
+            return [], None
+
         # vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
-        
+        image_description = self.get_image_description_from_azureCV(frame)
+        # if image_description is not None:
+        #     openAI_image_description = self.get_friendly_text_from_openAI(image_description)
+
+
         depth = data_depth.payload.depth
         if depth is None:
             print("Invalid depth")
-            return []
+            return [], None
         
         try:
             if current_time - self.last_detection_time >= DETECTION_COOLDOWN:
@@ -316,7 +403,7 @@ class HoloLensDetection:
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
-                    return []
+                    return [], None
 
             else:
                 print("\nPlease wait before next detection")
@@ -329,9 +416,9 @@ class HoloLensDetection:
 
         except Exception as e:
             print(f"Frame processing error: {str(e)}")
-            return []
+            return [], None
 
-        return objects
+        return objects, image_description
 
     def cleanup(self):
         """Cleanup resources"""

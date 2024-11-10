@@ -21,4 +21,6 @@ dependencies:
       - datasets
       - nncf
       - pyttsx
+      - azure-cognitiveservices-vision-computervision
+      - openai==0.28
 
