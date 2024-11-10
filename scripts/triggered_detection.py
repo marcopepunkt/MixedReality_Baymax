@@ -63,24 +63,27 @@ last_detection_time = 0
 DETECTION_COOLDOWN = 2
 
 # Azure Computer Vision:
+# TODO: insert endpoint, key from your Azure Computer Vision resource (do not commit them)
 region = "switzerlandnorth"
-endpoint = "https://baymaxcv.cognitiveservices.azure.com/"
-key = "RDUsQ9sjNNm8iq64g7ys2fUT63jalOJYxByykhAYjA2TTsDWIyNFJQQJ99AKACI8hq2XJ3w3AAAFACOG07X7"
+endpoint = "https://<resource name>.cognitiveservices.azure.com/"
+key = "<key>"
 credentials = CognitiveServicesCredentials(key)
 client = ComputerVisionClient(
     endpoint=endpoint,
     credentials=credentials
 )
 
+# use either Azure OpenAI or OpenAI (chatgpt) API
 # Azure OpenAI
+# TODO: insert Azure OpenAI name, key
+# i can't call the openAI now with this code :(
 openai.api_type = "azure"
-openai.api_base = "https://baymaxopenai.openai.azure.com/"
+openai.api_base = "https://<resource name>.openai.azure.com/"
 openai.api_version = "2021-04-30"
-openai.api_key = "E3XDVx6dBQ3vPgjQkYYbTKMkjdRcel0eJOAdSeHZBLmObDgXL0duJQQJ99AKACI8hq2XJ3w3AAABACOGdk09"
+openai.api_key = "<key>"
 
-# openAI (chatgpt) key:
-openai_key = "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"
-
+# TODO: insert openAI (chatgpt) key:
+openai_key = "<key>"
 
 class HoloLensDetection:
     def __init__(self, IP_ADDRESS):
