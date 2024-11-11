@@ -65,8 +65,8 @@ DETECTION_COOLDOWN = 2
 # Azure Computer Vision:
 # TODO: insert endpoint, key from your Azure Computer Vision resource (do not commit them)
 region = "switzerlandnorth"
-endpoint = "https://<resource name>.cognitiveservices.azure.com/"
-key = "<key>"
+endpoint = "https://<resource_name>.cognitiveservices.azure.com/"
+key = "key"
 credentials = CognitiveServicesCredentials(key)
 client = ComputerVisionClient(
     endpoint=endpoint,
@@ -316,7 +316,6 @@ class HoloLensDetection:
         if description_result.captions:
             description = description_result.captions[0].text
             confidence = description_result.captions[0].confidence
-            print(f"type description: {type(description)}")
             print(f"Description: {description}")
             print(f"Confidence: {confidence}")
             return description
@@ -397,7 +396,7 @@ class HoloLensDetection:
         depth = data_depth.payload.depth
         if depth is None:
             print("Invalid depth")
-            return [], None
+            return [], image_description
         
         try:
             if current_time - self.last_detection_time >= DETECTION_COOLDOWN:
@@ -407,7 +406,7 @@ class HoloLensDetection:
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
-                    return [], None
+                    return [], image_description
 
             else:
                 print("\nPlease wait before next detection")
