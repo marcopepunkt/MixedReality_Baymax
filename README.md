@@ -45,3 +45,5 @@ launch hl2ss app on hololens and then run
 
 say 'describe' after the terminal shows 'Ready! Say 'describe' to get a scene description.', then you will hear a audio output from the PC reading the response from Gemini
 
+## TODO
+- merge this function to unity app, test  `python baymax.py `
