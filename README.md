@@ -13,7 +13,7 @@ to run unity app and `baymax.py`:
 5. now run `baymax.py` and start the unity app on hololens. don't wait too much in between; otherwise it can't initialize stream from hololens to pc.
 6. after the flask server is on, you can say "detect"
 
-Azure TTS, Computer Vision, OpenAI: 
+Azure TTS, Computer Vision: 
 - get the keys from whatsapp group chat description. do NOT commit the keys to git
 - write the keys on `triggered_detection.py` and `VoiceCommandHandler.cs` in unity app
 ## TODO
