@@ -63,9 +63,9 @@ last_detection_time = 0
 DETECTION_COOLDOWN = 2
 
 # Azure Computer Vision:
-# TODO: insert endpoint, key from your Azure Computer Vision resource (do not commit them)
+# TODO: insert key (do not commit them)
 region = "switzerlandnorth"
-endpoint = "https://<resource_name>.cognitiveservices.azure.com/"
+endpoint = "https://baymaxcv.cognitiveservices.azure.com/"
 key = "key"
 credentials = CognitiveServicesCredentials(key)
 client = ComputerVisionClient(
@@ -73,10 +73,10 @@ client = ComputerVisionClient(
     credentials=credentials
 )
 
+# call to OpenAI does not work right now, so don't bother with key
 # TODO: use either Azure OpenAI or OpenAI (chatgpt) API
 # Azure OpenAI
 # TODO: insert Azure OpenAI name, key
-# i can't call the openAI now with this code :(
 openai.api_type = "azure"
 openai.api_base = "https://<resource name>.openai.azure.com/"
 openai.api_version = "2021-04-30"
