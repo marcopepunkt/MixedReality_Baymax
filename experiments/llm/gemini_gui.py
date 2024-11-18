@@ -10,20 +10,24 @@ class GeminiClient:
     def __init__(self, model_name: str = "gemini-1.5-flash"):
         """Initialize Gemini client with specified model."""
         load_dotenv()
-        genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+        genai.configure(api_key="os.getenv('GEMINI_API_KEY')")
         self.model = genai.GenerativeModel(model_name)
     
-    def generate_text(self, prompt: str) -> str:
-        """Generate text response from a prompt."""
+    def generate_text(self, prompt: str, conversation: Optional[str] = None) -> str:
+        """Generate text response from a prompt, optionally using conversation history."""
+        if conversation:
+            prompt = f"{conversation}\nUser: {prompt}"
         response = self.model.generate_content(prompt)
         return response.text
     
-    def analyze_image(self, image_path: str, prompt: Optional[str] = None) -> str:
-        """Analyze an image with optional prompt."""
+    def analyze_image(self, image_path: str, prompt: Optional[str] = None, conversation: Optional[str] = None) -> str:
+        """Analyze an image with optional prompt and conversation context."""
         image = genai.upload_file(image_path)
         content = [image]
         if prompt:
             content.extend(["\n\n", prompt])
+        if conversation:
+            content.append(f"\n\nConversation so far:\n{conversation}")
         result = self.model.generate_content(content)
         return result.text
 
@@ -33,6 +37,7 @@ class GeminiGUI:
         self.setup_gui()
         self.current_image_path = None
         self.photo_image = None  # Store PhotoImage object
+        self.conversation_history = ""  # Maintain conversation history
         
     def setup_gui(self):
         # Create main window
@@ -68,7 +73,7 @@ class GeminiGUI:
         generate_btn.pack(pady=5)
         
         # Response output
-        response_frame = ttk.LabelFrame(self.text_tab, text="Response")
+        response_frame = ttk.LabelFrame(self.text_tab, text="Conversation")
         response_frame.pack(fill='both', expand=True, padx=5, pady=5)
         
         self.text_response = scrolledtext.ScrolledText(response_frame, height=10)
@@ -142,14 +147,17 @@ class GeminiGUI:
             return
             
         try:
-            self.text_response.delete("1.0", tk.END)
+            self.text_response.insert(tk.END, f"User: {prompt}\n")
             self.text_response.insert(tk.END, "Generating response...\n")
             self.root.update_idletasks()
             
-            response = self.client.generate_text(prompt)
+            response = self.client.generate_text(prompt, conversation=self.conversation_history)
             
-            self.text_response.delete("1.0", tk.END)
-            self.text_response.insert(tk.END, response)
+            # Update conversation history
+            self.conversation_history += f"User: {prompt}\nAI: {response}\n"
+            
+            # Display response
+            self.text_response.insert(tk.END, f"AI: {response}\n")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
             
@@ -183,14 +191,16 @@ class GeminiGUI:
         prompt = self.image_prompt.get("1.0", tk.END).strip()
         
         try:
-            self.image_response.delete("1.0", tk.END)
             self.image_response.insert(tk.END, "Analyzing image...\n")
             self.root.update_idletasks()
             
-            response = self.client.analyze_image(self.current_image_path, prompt)
+            response = self.client.analyze_image(self.current_image_path, prompt, conversation=self.conversation_history)
             
-            self.image_response.delete("1.0", tk.END)
-            self.image_response.insert(tk.END, response)
+            # Update conversation history
+            self.conversation_history += f"Image Analysis: {self.current_image_path}\nAI: {response}\n"
+            
+            # Display response
+            self.image_response.insert(tk.END, f"AI: {response}\n")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
             
