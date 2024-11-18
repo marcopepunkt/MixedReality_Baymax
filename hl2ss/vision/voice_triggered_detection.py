@@ -24,6 +24,9 @@ import hl2ss_3dcv
 from real_time import detect
 import openvino as ov
 
+import csv
+import json
+
 # Settings
 HOST = '169.254.174.24'
 CALIBRATION_PATH = "./calibration"
@@ -83,6 +86,114 @@ class HoloLensVoiceDetection:
         self.input_layer = self.compiled_model.input(0)
         self.output_layer = self.compiled_model.output(0)
         self.height, self.width = list(self.input_layer.shape)[1:3]
+
+        # Add logging paths
+        self.log_base_dir = "detection_logs"
+        self.current_session_dir = None
+        self.init_logging()
+
+    def init_logging(self):
+        """Initialize logging directories"""
+        try:
+            # Create base directory
+            os.makedirs(self.log_base_dir, exist_ok=True)
+            
+            # Create new session directory with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            self.current_session_dir = os.path.join(self.log_base_dir, f"session_{timestamp}")
+            os.makedirs(self.current_session_dir, exist_ok=True)
+            
+            # Create subdirectories for different types of data
+            os.makedirs(os.path.join(self.current_session_dir, "frames_raw"), exist_ok=True)
+            os.makedirs(os.path.join(self.current_session_dir, "frames_annotated"), exist_ok=True)
+            os.makedirs(os.path.join(self.current_session_dir, "depth_data"), exist_ok=True)
+            os.makedirs(os.path.join(self.current_session_dir, "data"), exist_ok=True)
+            
+            # Initialize CSV log file
+            self.csv_path = os.path.join(self.current_session_dir, "data", "detections.csv")
+            with open(self.csv_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow([
+                    'timestamp',
+                    'frame_id',
+                    'class',
+                    'confidence',
+                    'x', 'y', 'width', 'height',
+                    'depth',
+                    'raw_frame_path',
+                    'annotated_frame_path',
+                    'depth_data_path'
+                ])
+            
+            print(f"Logging initialized at {self.current_session_dir}")
+            
+        except Exception as e:
+            print(f"Error initializing logging: {str(e)}")
+            self.current_session_dir = None
+
+    def save_frame_data(self, frame_id: str, raw_frame: np.ndarray, annotated_frame: np.ndarray, depth_data: np.ndarray) -> Tuple[str, str, str]:
+        """
+        Save raw frame, annotated frame, and depth data
+        Returns: Tuple of (raw_frame_path, annotated_frame_path, depth_data_path)
+        """
+        if self.current_session_dir is None:
+            return None, None, None
+            
+        try:
+            # Save raw frame
+            raw_frame_path = os.path.join(self.current_session_dir, "frames_raw", f"frame_{frame_id}.jpg")
+            cv2.imwrite(raw_frame_path, raw_frame)
+            
+            # Save annotated frame
+            annotated_frame_path = os.path.join(self.current_session_dir, "frames_annotated", f"frame_{frame_id}.jpg")
+            cv2.imwrite(annotated_frame_path, annotated_frame)
+            
+            # Save depth data as numpy array
+            depth_data_path = os.path.join(self.current_session_dir, "depth_data", f"depth_{frame_id}.npy")
+            np.save(depth_data_path, depth_data)
+            
+            return (
+                os.path.relpath(raw_frame_path, self.current_session_dir),
+                os.path.relpath(annotated_frame_path, self.current_session_dir),
+                os.path.relpath(depth_data_path, self.current_session_dir)
+            )
+            
+        except Exception as e:
+            print(f"Error saving frame data: {str(e)}")
+            return None, None, None
+
+    def log_detections(self, frame_id: str, boxes: List, poses: List, file_paths: Tuple[str, str, str]):
+        """Log detection results to CSV"""
+        if self.current_session_dir is None:
+            return
+            
+        try:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
+            raw_frame_path, annotated_frame_path, depth_data_path = file_paths
+            
+            with open(self.csv_path, 'a', newline='') as f:
+                writer = csv.writer(f)
+                
+                for (label, score, box), pose in zip(boxes, poses):
+                    depth = pose.depth if pose is not None and not np.isnan(pose.depth) else -1
+                    x, y, w, h = box
+                    
+                    writer.writerow([
+                        timestamp,
+                        frame_id,
+                        detect.classes[label],
+                        f"{score:.3f}",
+                        x, y, w, h,
+                        f"{depth:.3f}" if depth >= 0 else "unknown",
+                        raw_frame_path,
+                        annotated_frame_path,
+                        depth_data_path
+                    ])
+                    
+        except Exception as e:
+            print(f"Error logging detections: {str(e)}")
+
+
 
     def init_keyboard(self):
         """Initialize keyboard listener"""
@@ -274,8 +385,12 @@ class HoloLensVoiceDetection:
             if frame is None:
                 return None, None, None
         
+            # Store the raw frame before any modifications
+            raw_frame = frame.copy()
+            
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+                raw_frame = cv2.cvtColor(raw_frame, cv2.COLOR_BGRA2BGR)
                 
             input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
             input_img = input_img[np.newaxis, ...]
@@ -283,11 +398,25 @@ class HoloLensVoiceDetection:
             results = self.compiled_model([input_img])[self.output_layer]
             boxes = detect.process_results(frame=frame, results=results, thresh=0.5)
 
+            if not boxes:  # If no detections, return early
+                return [], [], frame
+
             sensor_depth = hl2ss_3dcv.rm_depth_normalize(depth_data, scale)
             sensor_depth[sensor_depth > MAX_SENSOR_DEPTH] = 0
 
             poses = detect.estimate_box_poses(sensor_depth, boxes)
             vis_frame = self.draw_detection_results(frame, boxes, poses)
+
+            # Generate frame ID and save results
+            if self.current_session_dir is not None:
+                try:
+                    frame_id = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+                    file_paths = self.save_frame_data(frame_id, raw_frame, vis_frame, depth_data)
+                    if file_paths[0] is not None:  # Check if saving was successful
+                        self.log_detections(frame_id, boxes, poses, file_paths)
+                except Exception as e:
+                    print(f"Error saving detection data: {str(e)}")
+                    # Continue with detection even if saving fails
 
             self.announce_detections(boxes, poses)
 
@@ -302,7 +431,7 @@ class HoloLensVoiceDetection:
 
         except Exception as e:
             print(f"Detection error: {str(e)}")
-            return None, None, frame
+            return [], [], frame  # Return empty lists instead of None for better error handling
 
     def run(self):
         """Main run loop"""
@@ -325,19 +454,16 @@ class HoloLensVoiceDetection:
                     # Get depth frame
                     _, data_depth = self.sink_depth.get_most_recent_frame()
                     if data_depth is None or not hl2ss.is_valid_pose(data_depth.pose):
-                        print("No valid depth frame")
                         continue
 
                     # Get PV frame
                     _, data_pv = self.sink_pv.get_nearest(data_depth.timestamp)
                     if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
-                        print("No valid PV frame")
                         continue
 
                     # Get frame and check if it's valid
                     frame = data_pv.payload.image
                     if frame is None:
-                        #print("Invalid frame")
                         continue
                     
                     depth = data_depth.payload.depth
@@ -346,7 +472,7 @@ class HoloLensVoiceDetection:
                         continue
 
                     # Create visualization frame
-                    vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+                    vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
 
                     # Check voice commands
                     events = self.voice_client.pop()
@@ -408,6 +534,28 @@ class HoloLensVoiceDetection:
             
             if self.keyboard_listener:
                 self.keyboard_listener.join()
+
+            if self.current_session_dir is not None:
+                try:
+                    # Count files in each directory
+                    raw_frames_count = len(os.listdir(os.path.join(self.current_session_dir, "frames_raw")))
+                    annotated_frames_count = len(os.listdir(os.path.join(self.current_session_dir, "frames_annotated")))
+                    depth_data_count = len(os.listdir(os.path.join(self.current_session_dir, "depth_data")))
+                    
+                    summary = {
+                        "session_end": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "total_detections": sum(1 for line in open(self.csv_path)) - 1,  # Subtract header
+                        "raw_frames_saved": raw_frames_count,
+                        "annotated_frames_saved": annotated_frames_count,
+                        "depth_data_saved": depth_data_count
+                    }
+                    
+                    summary_path = os.path.join(self.current_session_dir, "session_summary.json")
+                    with open(summary_path, 'w') as f:
+                        json.dump(summary, f, indent=4)
+                        
+                except Exception as e:
+                    print(f"Error saving session summary: {str(e)}")
                 
             print("Cleanup completed")
         except Exception as e:
