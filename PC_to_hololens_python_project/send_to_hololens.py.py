@@ -1,6 +1,5 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 import random
-from OpenSSL import SSL
 
 app = Flask(__name__)
 
@@ -43,6 +42,19 @@ def get_classes():
 
     # Return the list of transformations as JSON
     return jsonify(transformations)
+
+@app.route('/api', methods=['GET', 'POST'])
+def handle_speech():
+    if request.method == 'GET':
+        return "API is working! Send a POST request to use this endpoint."
+    
+    # Handle POST request as usual
+    speech_text = request.form.get('speechText')
+    if not speech_text:
+        return jsonify({'error': 'No speech text provided'}), 400
+    response_text = f"You said: {speech_text}. This is the server response!"
+    return jsonify({'response': response_text})
+
 
 if __name__ == '__main__':
     app.run(host="0.0.0.0", port = 5000, debug=True)
