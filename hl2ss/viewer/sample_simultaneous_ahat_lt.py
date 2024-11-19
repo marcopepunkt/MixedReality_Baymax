@@ -16,7 +16,7 @@ import hl2ss_mp
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.1.7'
+host = '169.254.174.24'
 
 # Buffer size in seconds
 buffer_size = 5

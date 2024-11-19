@@ -18,7 +18,7 @@ import hl2ss_utilities
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '192.168.1.7'
+host = '169.254.174.24'
 
 # Calibration path (must exist but can be empty)
 calibration_path = '../calibration'
@@ -87,6 +87,8 @@ if __name__ == '__main__':
     # Initialize PV intrinsics and extrinsics ---------------------------------
     pv_intrinsics = hl2ss.create_pv_intrinsics_placeholder()
     pv_extrinsics = np.eye(4, 4, dtype=np.float32)
+
+
 
     VI = hl2ss_utilities.framerate_counter()
     VI.reset()

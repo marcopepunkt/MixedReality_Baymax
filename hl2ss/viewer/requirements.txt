@@ -1,0 +1,17 @@
+numpy>=1.18.5
+opencv-python
+pillow>=7.1.2
+torch>=1.7.0
+torchvision>=0.8.1
+pandas>=1.2.0
+requests
+openvino-dev>=2024.0.0
+tensorflow
+pynput
+av
+open3d
+tqdm
+opencv-contrib-python
+datasets
+nncf
+filterpy
