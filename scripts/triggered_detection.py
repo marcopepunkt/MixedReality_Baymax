@@ -62,8 +62,8 @@ calibration_lt = None
 last_detection_time = 0
 DETECTION_COOLDOWN = 2
 
-# Azure Computer Vision:
-# TODO: insert key (do not commit them)
+# for Azure Computer Vision resource, gets image description:
+# insert key (do not commit them)
 region = "switzerlandnorth"
 endpoint = "https://baymaxcv.cognitiveservices.azure.com/"
 key = "key"
@@ -73,17 +73,6 @@ client = ComputerVisionClient(
     credentials=credentials
 )
 
-# call to OpenAI does not work right now, so don't bother with key
-# TODO: use either Azure OpenAI or OpenAI (chatgpt) API
-# Azure OpenAI
-# TODO: insert Azure OpenAI name, key
-openai.api_type = "azure"
-openai.api_base = "https://<resource name>.openai.azure.com/"
-openai.api_version = "2021-04-30"
-openai.api_key = "<key>"
-
-# TODO: insert openAI (chatgpt) key:
-# openai_key = "<key>"
 
 class HoloLensDetection:
     def __init__(self, IP_ADDRESS):
@@ -323,33 +312,6 @@ class HoloLensDetection:
             print("No description available from azureCV for this frame.")
             return None
 
-    def get_friendly_text_from_openAI(self, image_description):
-        message_text = [
-            {
-                "role": "system",
-                "content": "You are an AI assistant that helps people find information."
-            },
-            {"role": "user",
-             "content": f"Construct full sentences with this text, that are more user-friendly: {image_description}"
-            }
-        ]
-
-        completion = openai.ChatCompletion.create(engine="model-gpt-35-turbo-16k",
-                                                  messages=message_text,
-                                                  temperature=0.7,
-                                                  max_tokens=800,
-                                                  top_p=0.95,
-                                                  frequency_penalty=0,
-                                                  presence_penalty=0,
-                                                  stop=None)
-        if completion is not None:
-            print(f"chatgpt response: {completion}")
-            print(completion["message"]['content'])
-            return completion["message"]['content']
-        else:
-            print("Could not get response from chatgpt.")
-            return None
-
     def start(self):
         try:
             print("Initializing...")
@@ -362,6 +324,25 @@ class HoloLensDetection:
             import traceback
             traceback.print_exc()
 
+    def get_pv_frame(self):
+        # Get depth frame
+        _, data_depth = self.sink_depth.get_most_recent_frame()
+        if data_depth is None or not hl2ss.is_valid_pose(data_depth.pose):
+            print("No valid depth frame")
+        # Get PV frame
+        _, data_pv = self.sink_pv.get_nearest(data_depth.timestamp)
+        if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
+            print("No valid PV frame")
+            return None
+        # Get frame and check if it's valid
+        frame = data_pv.payload.image
+        self.latest_frame = frame
+        if frame is None:
+            # print("Invalid frame")
+            return None
+        return frame
+
+
     def run(self):
         print("Starting object detection!")
 
@@ -373,30 +354,30 @@ class HoloLensDetection:
         _, data_depth = self.sink_depth.get_most_recent_frame()
         if data_depth is None or not hl2ss.is_valid_pose(data_depth.pose):
             print("No valid depth frame")
-            return [], None
+            return []
 
         # Get PV frame
         _, data_pv = self.sink_pv.get_nearest(data_depth.timestamp)
         if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
             print("No valid PV frame")
-            return [], None
+            return []
 
         # Get frame and check if it's valid
         frame = data_pv.payload.image
+        self.latest_frame = frame
         if frame is None:
             #print("Invalid frame")
-            return [], None
+            return []
 
         # vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
-        image_description = self.get_image_description_from_azureCV(frame)
-        # if image_description is not None:
-        #     openAI_image_description = self.get_friendly_text_from_openAI(image_description)
 
+        # optional: can get a description of the frame from Azure CV object detection model
+        # image_description = self.get_image_description_from_azureCV(frame)
 
         depth = data_depth.payload.depth
         if depth is None:
             print("Invalid depth")
-            return [], image_description
+            return []
         
         try:
             if current_time - self.last_detection_time >= DETECTION_COOLDOWN:
@@ -406,7 +387,7 @@ class HoloLensDetection:
                 if objects is not None:
                     self.last_detection_time = current_time
                 else:
-                    return [], image_description
+                    return []
 
             else:
                 print("\nPlease wait before next detection")
@@ -419,9 +400,9 @@ class HoloLensDetection:
 
         except Exception as e:
             print(f"Frame processing error: {str(e)}")
-            return [], None
+            return []
 
-        return objects, image_description
+        return objects
 
     def cleanup(self):
         """Cleanup resources"""

@@ -8,7 +8,7 @@ import numpy as np
 import cv2
 import multiprocessing as mp
 from datetime import datetime
-import pygame  # For cross-platform sound
+# import pygame  # For cross-platform sound
 import pyttsx3
 import threading
 
@@ -16,7 +16,6 @@ import threading
 import hl2ss
 import hl2ss_lnm
 import hl2ss_mp
-
 
 # Import Gemini dependencies
 import google.generativeai as genai
@@ -98,7 +97,7 @@ class GeminiClient:
     def __init__(self):
         """Initialize Gemini client"""
         load_dotenv()
-        genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
+        genai.configure(api_key="AIzaSyD4azQyUDjfvP6WxJW_6NKY-a0SguxBar8")
         self.model = genai.GenerativeModel('gemini-1.5-pro')
     
     def analyze_image(self, image_array, prompt: str) -> str:

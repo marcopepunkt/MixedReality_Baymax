@@ -23,4 +23,7 @@ dependencies:
       - pyttsx
       - azure-cognitiveservices-vision-computervision
       - openai==0.28
+      - google-generativeai
+      - python-dotenv
+      - pygame
 
