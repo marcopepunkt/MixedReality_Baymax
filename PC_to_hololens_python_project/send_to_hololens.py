@@ -33,7 +33,8 @@ def get_classes():
             'priority': priority,
             'x': random_x,
             'y': random_y,
-            'z': random_z
+            'z': random_z,
+            'description': "here is description"
         }
 
         transformations.append(transform_data)

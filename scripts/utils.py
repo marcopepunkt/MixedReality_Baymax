@@ -161,7 +161,7 @@ class Object:
 #         data.append(obj_data)
 #     return json.dumps(data, indent=4)
 
-def objects_to_json(objects: List[Object], image_description):
+def objects_to_json(objects: List[Object], image_description=None):
     if len(objects) == 0: # no objects detected, just send description to unity
         if image_description is None:
             return json.dumps([])
