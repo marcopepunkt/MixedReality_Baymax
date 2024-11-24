@@ -97,7 +97,7 @@ class GeminiClient:
     def __init__(self):
         """Initialize Gemini client"""
         load_dotenv()
-        genai.configure(api_key="AIzaSyD4azQyUDjfvP6WxJW_6NKY-a0SguxBar8")
+        genai.configure(api_key="none")
         self.model = genai.GenerativeModel('gemini-1.5-pro')
     
     def analyze_image(self, image_array, prompt: str) -> str:
