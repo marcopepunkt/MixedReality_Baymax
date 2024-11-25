@@ -34,7 +34,7 @@ def get_classes():
             'x': random_x,
             'y': random_y,
             'z': random_z,
-            'description': "here is description"
+            'depth': random_z
         }
 
         transformations.append(transform_data)
