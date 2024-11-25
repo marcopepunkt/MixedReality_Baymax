@@ -149,33 +149,10 @@ class Object:
         
         return [bottom_left, bottom_right, top_right, top_left]
 
-# def objects_to_json(objects: List[Object]) -> str:
-#     data = []
-#     for obj in objects:
-#         obj_data = {
-#             "label": int(obj.label),
-#             "center": obj.center,
-#             "depth": obj.depth,
-#             "world_pose": obj.world_pose,
-#         }
-#         data.append(obj_data)
-#     return json.dumps(data, indent=4)
 
-def objects_to_json(objects: List[Object], image_description=None):
-    if len(objects) == 0: # no objects detected, just send description to unity
-        if image_description is None:
-            return json.dumps([])
-
-        data = [{
-            'class_name': "none",
-            'priority': -1,
-            'x': -1,
-            'y': -1,
-            'z': -1,
-            'depth': -1,
-            'description': image_description,
-        }]
-        return jsonify(data)
+def objects_to_json(objects: List[Object]):
+    if len(objects) == 0: # no objects detected
+        return json.dumps([])
 
     data = []
     for obj in objects:
@@ -185,8 +162,7 @@ def objects_to_json(objects: List[Object], image_description=None):
             'x': float(obj.world_pose[0]),
             'y': float(obj.world_pose[1]),
             'z': float(obj.world_pose[2]),
-            'depth': float(obj.depth),
-            'description': image_description,
+            'depth': float(obj.depth)
         }
         data.append(obj_data)
     data.sort(key=lambda t: (t['priority'], t['depth']))
@@ -278,6 +254,24 @@ def process_results(frame, results, thresh=0.6):
         boxes.append(tuple(map(int, (xmin * w, ymin * h, (xmax - xmin) * w, (ymax - ymin) * h))))
         labels.append(int(label))
         scores.append(float(score))
+
+    # Apply non-maximum suppression to get rid of many overlapping entities.
+    # See https://paperswithcode.com/method/non-maximum-suppression
+    # This algorithm returns indices of objects to keep.
+    indices = cv2.dnn.NMSBoxes(bboxes=boxes, scores=scores, score_threshold=thresh, nms_threshold=0.6)
+
+    # If there are no boxes.
+    if len(indices) == 0:
+        return []
+
+    # Filter detected objects.
+    return [(labels[idx], scores[idx], boxes[idx]) for idx in indices.flatten()]
+
+def process_results_rcnn(labels, boxes, scores, thresh=0.6):
+    scores = scores.tolist() # transform Tensor to python list
+    for i in range(len(labels)):
+        labels[i] = int(classes.index(labels[i]))
+    boxes = [tuple(map(int, row)) for row in boxes.tolist()] # transform Tensor to python list
 
     # Apply non-maximum suppression to get rid of many overlapping entities.
     # See https://paperswithcode.com/method/non-maximum-suppression

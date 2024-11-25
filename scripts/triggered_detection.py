@@ -37,6 +37,10 @@ import openai
 from PIL import Image
 import io
 
+#for rcnn object detection (detecto library)
+from detecto.core import Model
+import ssl
+
 # Settings
 CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
@@ -103,11 +107,15 @@ class HoloLensDetection:
         os.makedirs(CALIBRATION_PATH, exist_ok=True)
         
         # Load detection model
-        detection_model = self.core.read_model(model=detection_model_path)
-        self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
-        self.input_layer = self.compiled_model.input(0)
-        self.output_layer = self.compiled_model.output(0)
-        self.height, self.width = list(self.input_layer.shape)[1:3]
+        self.use_rcnn = True
+        if self.use_rcnn:
+            self.compiled_model = Model(device=torch.device('cpu'), pretrained=True)
+        else:
+            detection_model = self.core.read_model(model=detection_model_path)
+            self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
+            self.input_layer = self.compiled_model.input(0)
+            self.output_layer = self.compiled_model.output(0)
+            self.height, self.width = list(self.input_layer.shape)[1:3]
 
 
     def init_streams(self):
@@ -251,18 +259,22 @@ class HoloLensDetection:
         
             if frame.shape[2] == 4:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
-                
-            input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
-            input_img = input_img[np.newaxis, ...]
 
-            results = self.compiled_model([input_img])[self.output_layer]
-            boxes = utils.process_results(frame=frame, results=results, thresh=0.5)
+            if not self.use_rcnn:
+                input_img = cv2.resize(src=frame, dsize=(self.width, self.height), interpolation=cv2.INTER_AREA)
+                input_img = input_img[np.newaxis, ...]
+                results = self.compiled_model([input_img])[self.output_layer]
+                boxes = utils.process_results(frame=frame, results=results, thresh=0.5)
+
+            if self.use_rcnn:
+                input_img = frame
+                labels, boxes, scores = self.compiled_model.predict(input_img)
+                boxes = utils.process_results_rcnn(labels, boxes, scores, thresh=0.5)
 
             sensor_depth = hl2ss_3dcv.rm_depth_normalize(depth, self.scale)
             sensor_depth[sensor_depth > MAX_SENSOR_DEPTH] = 0
 
             uv_map = self.get_uv_map(data_pv,depth_data,sensor_depth)
-
             mapped_boxes = utils.remap_bounding_boxes(boxes,frame,uv_map)
             objects = utils.estimate_box_poses(sensor_depth,mapped_boxes)
             # vis_frame = self.draw_detection_results(frame, boxes, objects)
