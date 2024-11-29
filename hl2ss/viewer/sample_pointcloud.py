@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '169.254.174.24'
+host = '169.254.236.128'
 
 # Calibration path (must exist but can be empty)
 calibration_path = 'calibration'
@@ -71,7 +71,7 @@ def synchronize_streams(sink_lt, client, tolerance=1e5):
             _, data_lt = sink_lt.get_most_recent_frame()
         time_delta = data_lt.timestamp - si_data.timestamp
 
-    print(f"Synchronized time delta: {time_delta}")
+    #print(f"Synchronized time delta: {time_delta}")
     return data_lt, si_data
 
 # Initialize Kalman filters for roll, pitch, yaw
@@ -165,9 +165,10 @@ def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_thresh
     RANSAC algorithm to find the floor plane in a point cloud.
     """
     # Convert Open3D point cloud to NumPy array
-    original_points = np.asarray(point_cloud.points)
-    points = transform_points(original_points, pose)
-    head_height = pose[1,3]
+    #original_points = np.asarray(point_cloud.points)
+    #points = transform_points(original_points, pose)
+    points = np.asarray(point_cloud.points)
+    head_height = pose[1,2]
 
     up_vector = np.array([0,1,0])
 
@@ -225,7 +226,7 @@ def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_thresh
             if abs(a * point[0] + b * point[1] + c * point[2] + d) / plane_norm < distance_threshold
         )
         if len(inliers) > 0:
-            plane_height = np.mean(points[np.array(list(inliers)), 2])
+            plane_height = np.mean(points[np.array(list(inliers)), 1])
 
         return inliers, plane_height
 
@@ -239,9 +240,10 @@ def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_thresh
                 best_inliers = inliers
                 height = plane_height
 
-    if plane_height > head_height + 0.25:
+    if height > head_height + 0.25:
+        print("Found plane but too high: ", height," with head height: ", head_height)
         return list()
-    
+
     return list(best_inliers)
 
 def find_floor_with_pose_ransac_o3d(point_cloud, pose_matrix, max_iterations=50, distance_threshold=0.01, min_inliers=1000, angle_threshold=10):
@@ -262,7 +264,8 @@ def find_floor_with_pose_ransac_o3d(point_cloud, pose_matrix, max_iterations=50,
     """
     # Convert Open3D point cloud to NumPy array
     original_points = np.asarray(point_cloud.points)
-    transformed_points = transform_points(original_points, pose_matrix)
+    #transformed_points = transform_points(original_points, pose_matrix)
+    transformed_points = original_points
 
     # Initialize variables
     points_remaining = transformed_points.copy()
@@ -383,6 +386,139 @@ def dbscan_clustering(point_cloud, colors, non_floor_mask, eps=0.1, min_samples=
 
 #------------------------------------------------------------------------------
 
+def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_mask, min_points=50, reference_point=(0, 0)):
+    """
+    Fit bounding boxes around clusters in the point cloud, filter by minimum number of points,
+    and order by proximity to a reference point in the XZ plane.
+
+    Args:
+    - point_cloud (open3d.geometry.PointCloud): The input point cloud.
+    - labels (numpy.ndarray): Cluster labels for the points (-1 indicates noise).
+    - non_floor_mask (numpy.ndarray): Mask for non-floor points.
+    - min_points (int): Minimum number of points required to create a bounding box.
+    - reference_point (tuple): Reference point (x, z) for sorting by proximity.
+
+    Returns:
+    - bounding_boxes (list): List of bounding boxes for clusters meeting the threshold, ordered by proximity.
+    - centers_radii (list): List of (center_x, center_z, radius) tuples for each bounding box, ordered by proximity.
+    """
+    points = np.asarray(point_cloud.points)
+    non_floor_points = points[non_floor_mask]
+    bounding_boxes = []
+    centers_radii = []
+
+    unique_labels = np.unique(labels)
+    for label in unique_labels:
+        if label == -1:
+            # Skip noise
+            continue
+
+        # Extract points belonging to the current cluster
+        cluster_points = non_floor_points[labels == label]
+
+        # Skip clusters with fewer points than the threshold
+        if len(cluster_points) < min_points:
+            continue
+
+        # Create an Open3D point cloud for the cluster
+        cluster_pcd = o3d.geometry.PointCloud()
+        cluster_pcd.points = o3d.utility.Vector3dVector(cluster_points)
+
+        # Compute the axis-aligned bounding box (AABB)
+        aabb = cluster_pcd.get_axis_aligned_bounding_box()
+        bounding_boxes.append(aabb)
+
+        # Compute the center and radius for the XZ plane
+        bbox_points = np.asarray(aabb.get_box_points())
+        xz_points = bbox_points[:, [0, 2]]  # Project onto XZ plane
+        center_xz = xz_points.mean(axis=0)
+        min_xz = xz_points.min(axis=0)
+        max_xz = xz_points.max(axis=0)
+        radius = np.linalg.norm(max_xz - min_xz) / 2
+
+        if center_xz[1] > 0 :
+            continue
+        
+        # Convert to planning frame
+        centers_radii.append((center_xz[0], - center_xz[1], radius))
+
+    # Compute distances from the reference point
+    distances = [
+        np.linalg.norm([cx - reference_point[0], cz - reference_point[1]])
+        for cx, cz, _ in centers_radii
+    ]
+
+    # Sort bounding boxes and centers_radii by distance
+    sorted_indices = np.argsort(distances)
+    bounding_boxes = [bounding_boxes[i] for i in sorted_indices]
+    centers_radii = [centers_radii[i] for i in sorted_indices]
+
+    return bounding_boxes, centers_radii
+
+def get_xz_centers_and_radii(bounding_boxes):
+    """
+    Compute the center and radius of bounding boxes projected onto the XZ plane.
+
+    Args:
+    - bounding_boxes (list): List of Open3D bounding boxes (Axis-Aligned or Oriented).
+
+    Returns:
+    - centers_radii (list): List of (center_x, center_z, radius) tuples for each bounding box.
+    """
+    centers_radii = []
+
+    for bbox in bounding_boxes:
+        # Get the 8 corner points of the bounding box
+        bbox_points = np.asarray(bbox.get_box_points())
+
+        # Project points onto the XZ plane
+        xz_points = bbox_points[:, [0, 2]]
+
+        # Compute the center in the XZ plane
+        center_xz = xz_points.mean(axis=0)
+
+        # Compute the radius as half the diagonal of the XZ projection
+        min_xz = xz_points.min(axis=0)
+        max_xz = xz_points.max(axis=0)
+        diagonal_length = np.linalg.norm(max_xz - min_xz)
+        radius = diagonal_length / 2
+
+        # Store the result
+        centers_radii.append((center_xz[0], center_xz[1], radius))
+
+    return centers_radii
+
+import matplotlib.pyplot as plt
+
+def visualize_circles_2d_realtime(centers_radii):
+    """
+    Real-time visualization of bounding box centers and radii in 2D space.
+
+    Args:
+    - centers_radii (list): List of (center_x, center_z, radius) tuples for each bounding box.
+    """
+    plt.ion()  # Turn on interactive mode
+    fig, ax = plt.subplots(figsize=(8, 8))
+    circles = []  # To store circle objects
+
+    # Configure plot
+    ax.set_xlim(-10, 10)  # Adjust limits based on your data
+    ax.set_ylim(-10, 10)  # Adjust limits based on your data
+    ax.set_aspect('equal', adjustable='box')
+    ax.grid()
+
+    while True:
+        # Clear existing circles
+        for circle in circles:
+            circle.remove()
+        circles.clear()
+
+        # Plot updated circles
+        for cx, cz, r in centers_radii:
+            circle = plt.Circle((cx, cz), r, color="blue", fill=False, linewidth=2)
+            ax.add_patch(circle)
+            circles.append(circle)
+# -------------------------------------------------------------------------------------------
 def extract_floor_normal_from_pose(pose_matrix):
     """
     Extract the floor normal vector from a 4x4 pose matrix.
@@ -458,6 +594,48 @@ def rotate_point_cloud_to_imu_frame(point_cloud):
     
     return rotated_point_cloud
 
+def keep_rotations_xz(rotation_matrix):
+    """
+    Extract and keep only rotations around the X- and Z-axes from a 3D rotation matrix.
+
+    Args:
+    - rotation_matrix (numpy.ndarray): 3x3 rotation matrix.
+
+    Returns:
+    - numpy.ndarray: Modified 3x3 rotation matrix with only X- and Z-rotation components.
+    """
+    # Decompose the rotation matrix into Euler angles
+    sy = np.sqrt(rotation_matrix[0, 0]**2 + rotation_matrix[1, 0]**2)
+    
+    # Check for gimbal lock
+    singular = sy < 1e-6
+
+    if not singular:
+        x_angle = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])  # Rotation around X
+        z_angle = np.arctan2(rotation_matrix[1, 0], rotation_matrix[0, 0])  # Rotation around Z
+        #print("X rotation: ", x_angle, "Z_rotation: ", z_angle)
+    else:
+        x_angle = np.arctan2(-rotation_matrix[1, 2], rotation_matrix[1, 1])  # Rotation around X
+        z_angle = 0  # Rotation around Z is undefined in this case
+
+    # Reconstruct rotation matrix with only X and Z rotations
+    Rx = np.array([
+        [1, 0, 0],
+        [0, np.cos(x_angle), -np.sin(x_angle)],
+        [0, np.sin(x_angle), np.cos(x_angle)]
+    ])
+
+    Rz = np.array([
+        [np.cos(z_angle), -np.sin(z_angle), 0],
+        [np.sin(z_angle), np.cos(z_angle), 0],
+        [0, 0, 1]
+    ])
+
+    # Combine the X and Z rotations
+    R_xz = Rz @ Rx
+
+    return R_xz
+
 if __name__ == '__main__':
     # Keyboard events ---------------------------------------------------------
     enable = True
@@ -505,13 +683,11 @@ if __name__ == '__main__':
     sink_ht.get_attach_response()
     sink_lt.get_attach_response()
 
-    # # IMU
-    # calibration_imu = hl2ss_lnm.download_calibration_rm_imu(host, imu_port).extrinsics
-    # client = hl2ss_lnm.rx_rm_imu(host, imu_port, mode=imu_mode)
-    # client.open()
-    # Spatial Input
     client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
     client.open()
+
+    navigation = False
+    object_detect = False
 
     # Main loop ---------------------------------------------------------------
     while (enable):
@@ -519,17 +695,32 @@ if __name__ == '__main__':
         data_lt, si_data = synchronize_streams(sink_lt,client)
 
         si = hl2ss.unpack_si(si_data.payload)
+        target_up = np.array([0,1,0])
         if (si.is_valid_head_pose()):
+
             head_pose = si.get_head_pose()
             up = head_pose.up
             forward = np.array(head_pose.forward)
+
+            x_flip_rot = np.eye(3)
+            x_flip_rot[1,1] = -1
+            x_flip_rot[2,2] = -1
+
             right = np.cross(up, -forward)
 
-            rotation = np.column_stack((right, up, -forward))
-            pose = np.eye(4) 
-            pose[:3, :3] = rotation  
-            pose[:3, 3] = head_pose.position
+            full_rotation = np.column_stack((right, up, -forward))
+            roll_yaw_rot = keep_rotations_xz(full_rotation)
 
+            #rotation =  rotation_x * x_flip_rot
+            #rotation = np.eye(3) * x_flip_rot
+            pose = np.eye(4) 
+            pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
+            pose[:3, :3] = roll_yaw_rot @ x_flip_rot
+
+            #pose[:3, 3] = head_pose.position
+            pose[:3, 3] = [0,0,0]
+
+            #print(pose)
             #print(f'Head pose: Position={head_pose.position} Forward={head_pose.forward} Up={head_pose.up}')
             # right = cross(up, -forward)
             # up => y, forward => -z, right => x
@@ -554,6 +745,13 @@ if __name__ == '__main__':
             depth_image = o3d.geometry.Image(depth)
             tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=o3d_lt_intrinsics, depth_scale=1)
             ds_pcd = downsample_point_cloud(tmp_pcd,voxel_size=0.05)
+            # points = np.asarray(ds_pcd.points)
+            # print(points[:10,:])
+            ds_pcd.transform(pose)
+
+
+            # points = np.asarray(ds_pcd.points)
+            # print(points[:10,:])
             # Create a copy of the point cloud to modify colors
             highlighted_pcd = o3d.geometry.PointCloud(ds_pcd)
 
@@ -562,8 +760,11 @@ if __name__ == '__main__':
 
             # Find floor inliers using RANSAC
             floor_inliers = find_plane_ransac_o3d(ds_pcd, pose)
+            bounding_boxes = []
             
             if len(floor_inliers) > 0:
+
+                navigation = True
                 colors[floor_inliers] = [1, 0, 0]  # Highlight floor inliers in red
 
                 # Create a mask for non-floor points
@@ -574,6 +775,15 @@ if __name__ == '__main__':
                 cluster_labels, filtered_colors = dbscan_clustering(ds_pcd, colors, non_floor_mask)
                 if cluster_labels.size > 0:
                     colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
+                
+                    bounding_boxes, centers_and_radii = fit_bounding_boxes_with_threshold_and_order(ds_pcd,cluster_labels, non_floor_mask, reference_point=(pose[0,3],pose[2,3]))
+
+                    #centers_and_radii = get_xz_centers_and_radii(bounding_boxes)
+                    #visualize_circles_2d_realtime(centers_and_radii)
+                    if isinstance(centers_and_radii, list) and len(centers_and_radii) > 0:
+                        print(centers_and_radii[0])
+                    else:
+                        print("centers_and_radii is either not a list or is empty.")
 
             # Update the colors in the copied point cloud
             highlighted_pcd.colors = o3d.utility.Vector3dVector(colors)
