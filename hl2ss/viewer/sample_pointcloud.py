@@ -29,18 +29,13 @@ calibration_path = 'calibration'
 # Buffer size in seconds
 buffer_size = 5
 
-# IMU
-imu_mode = hl2ss.StreamMode.MODE_1
-imu_port = hl2ss.StreamPort.RM_IMU_ACCELEROMETER
-
-
 #------------------------------------------------------------------------------
 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
 
-def synchronize_streams(sink_lt, sink_ht, spi_client, tolerance=1e5):
+def synchronize_streams(sink_lt, sink_ht, sink_si, tolerance=1e5):
     """
     Synchronize the data streams from two sinks and the IMU client.
 
@@ -55,14 +50,18 @@ def synchronize_streams(sink_lt, sink_ht, spi_client, tolerance=1e5):
     - data_ht: Synchronized high-throughput frame.
     - spi_data: Synchronized IMU packet.
     """
-    _, data_lt = sink_lt.get_most_recent_frame()
     _, data_ht = sink_ht.get_most_recent_frame()
-    spi_data = spi_client.get_next_packet()
+    _, data_lt = sink_lt.get_most_recent_frame()
+    _, data_si = sink_si.get_most_recent_frame()
+
+    if data_ht is None or data_lt is None or data_si is None:
+        return None, None, None
 
     while True:
+
         # Calculate time deltas
-        time_delta_lt_spi = data_lt.timestamp - spi_data.timestamp
-        time_delta_ht_spi = data_ht.timestamp - spi_data.timestamp
+        time_delta_lt_spi = data_lt.timestamp - data_si.timestamp
+        time_delta_ht_spi = data_ht.timestamp - data_si.timestamp
         time_delta_ht_lt = data_ht.timestamp - data_lt.timestamp
 
         # Check if all streams are synchronized
@@ -75,25 +74,25 @@ def synchronize_streams(sink_lt, sink_ht, spi_client, tolerance=1e5):
 
         # Adjust streams based on time differences
         if time_delta_lt_spi > tolerance:  # IMU is behind low-throughput
-            spi_data = spi_client.get_next_packet()
+            _, data_si = sink_si.get_most_recent_frame()
         elif time_delta_lt_spi < -tolerance:  # Low-throughput is behind
             _, data_lt = sink_lt.get_most_recent_frame()
 
         if time_delta_ht_spi > tolerance:  # IMU is behind high-throughput
-            spi_data = spi_client.get_next_packet()
+            _, data_si = sink_si.get_most_recent_frame()
         elif time_delta_ht_spi < -tolerance:  # High-throughput is behind
             _, data_ht = sink_ht.get_most_recent_frame()
 
         # Synchronize high-throughput with low-throughput
-        if time_delta_ht_lt > tolerance:  # High-throughput is ahead
+        if time_delta_ht_lt > tolerance*2:  # High-throughput is ahead
             _, data_ht = sink_ht.get_most_recent_frame()
-        elif time_delta_ht_lt < -tolerance:  # Low-throughput is ahead
+        elif time_delta_ht_lt < -tolerance*2:  # Low-throughput is ahead
             _, data_lt = sink_lt.get_most_recent_frame()
 
-    return data_lt, data_ht, spi_data
+    return data_lt, data_ht, data_si
 #------------------------------------------------------------------------------
 def merge_depth_images_with_focal_lengths(
-    depth_lt, depth_ht, focal_length_lt, focal_length_ht, lt_resolution, ht_resolution, smooth_kernel_size=15
+    depth_lt, depth_ht, focal_length_lt, lt_resolution, ht_resolution, smooth_kernel_size=15
 ):
     """
     Merges two depth images (Long Throw and AHAT) where the center is from the LT sensor
@@ -103,7 +102,6 @@ def merge_depth_images_with_focal_lengths(
     - depth_lt: Long Throw depth image (2D numpy array).
     - depth_ht: AHAT depth image (2D numpy array).
     - focal_length_lt: Focal length of the LT sensor in pixels.
-    - focal_length_ht: Focal length of the HT sensor in pixels.
     - lt_resolution: Tuple of (width, height) of the LT image.
     - ht_resolution: Tuple of (width, height) of the HT image.
     - smooth_kernel_size: Size of the smoothing kernel for blending (default: 15).
@@ -117,8 +115,12 @@ def merge_depth_images_with_focal_lengths(
     ht_width, ht_height = ht_resolution
 
     # Calculate the radius for the LT region based on the LT focal length
-    radius_lt = int(focal_length_lt * lt_width / (2 * focal_length_lt))  # Adjust scaling if needed
+    radius_lt = int(focal_length_lt * lt_width / (4 * focal_length_lt))  # Adjust scaling if needed
     radius_ht = int((radius_lt / lt_width) * ht_width)  # Scale to HT resolution
+
+
+    depth_lt = cv2.resize(depth_lt[:,:,0],(ht_resolution[0],ht_resolution[1]),interpolation=cv2.INTER_LINEAR)
+    depth_ht = depth_ht[:,:,0]
 
     # Create a mask for the LT priority region
     mask = np.zeros((ht_height, ht_width), dtype=np.uint8)
@@ -133,7 +135,7 @@ def merge_depth_images_with_focal_lengths(
     smooth_mask = cv2.dilate(mask, kernel, iterations=1).astype(np.float32)
     blended_depth = smooth_mask * depth_lt + (1 - smooth_mask) * depth_ht
 
-    return merged_depth, blended_depth
+    return merged_depth, blended_depth[:,:,np.newaxis]
 
 #------------------------------------------------------------------------------
 def transform_points(points, pose_matrix):
@@ -169,7 +171,7 @@ def downsample_point_cloud(point_cloud, voxel_size):
     downsampled_point_cloud = point_cloud.voxel_down_sample(voxel_size)
     return downsampled_point_cloud
 
-def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_threshold=0.1, min_inliers=250, angle_threshold=30):
+def find_plane_ransac_o3d(point_cloud, head_height, max_iterations=100, distance_threshold=0.1, min_inliers=250, angle_threshold=30):
     """
     RANSAC algorithm to find the floor plane in a point cloud.
     """
@@ -177,7 +179,6 @@ def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_thresh
     #original_points = np.asarray(point_cloud.points)
     #points = transform_points(original_points, pose)
     points = np.asarray(point_cloud.points)
-    head_height = pose[1,2]
 
     up_vector = np.array([0,1,0])
 
@@ -348,11 +349,10 @@ def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_m
         max_xz = xz_points.max(axis=0)
         radius = np.linalg.norm(max_xz - min_xz) / 2
 
-        if center_xz[1] > 0 :
-            continue
+        # if center_xz[1] > 0 :
+        #     continue
         
-        # Convert to planning frame
-        centers_radii.append((center_xz[0], - center_xz[1], radius))
+        centers_radii.append((center_xz[0], center_xz[1], radius))
 
     # Compute distances from the reference point
     distances = [
@@ -522,11 +522,15 @@ if __name__ == '__main__':
     # Calibration data will be downloaded if it's not in the calibration folder
     calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
     calibration_ht = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_AHAT, calibration_path)
+    lt_focal_length = (calibration_lt.intrinsics[0,0] + calibration_lt.intrinsics[1,1])*0.5
 
     uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_lt.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
     _ , scale_lt = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
-    uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_ht.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
+    uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_ht.intrinsics, hl2ss.Parameters_RM_DEPTH_AHAT.WIDTH, hl2ss.Parameters_RM_DEPTH_AHAT.HEIGHT)
     _ , scale_ht = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_ht.scale)
+
+    lt_resolution = (hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
+    ht_resolution = (hl2ss.Parameters_RM_DEPTH_AHAT.WIDTH, hl2ss.Parameters_RM_DEPTH_AHAT.HEIGHT)
 
     # Create Open3D visualizer ------------------------------------------------
     o3d_lt_intrinsics = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
@@ -539,25 +543,29 @@ if __name__ == '__main__':
     producer = hl2ss_mp.producer()
     producer.configure(hl2ss.StreamPort.RM_DEPTH_AHAT, hl2ss_lnm.rx_rm_depth_ahat(host, hl2ss.StreamPort.RM_DEPTH_AHAT))
     producer.configure(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, hl2ss_lnm.rx_rm_depth_longthrow(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW))
+    producer.configure(hl2ss.StreamPort.SPATIAL_INPUT, hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT))
     producer.initialize(hl2ss.StreamPort.RM_DEPTH_AHAT, buffer_size * hl2ss.Parameters_RM_DEPTH_AHAT.FPS)
     producer.initialize(hl2ss.StreamPort.RM_DEPTH_LONGTHROW, buffer_size * hl2ss.Parameters_RM_DEPTH_LONGTHROW.FPS)
+    producer.initialize(hl2ss.StreamPort.SPATIAL_INPUT, buffer_size * hl2ss.Parameters_SI.SAMPLE_RATE)
 
     producer.start(hl2ss.StreamPort.RM_DEPTH_LONGTHROW)
-    # Without this delay, the depth streams might crash and require rebooting 
-    # the HoloLens
+    # Without this delay, the depth streams might crash and require rebooting the HoloLens
     time.sleep(5) 
-    producer.start(hl2ss.StreamPort.RM_DEPTH_AHAT)    
+    producer.start(hl2ss.StreamPort.RM_DEPTH_AHAT)
+    producer.start(hl2ss.StreamPort.SPATIAL_INPUT)    
 
     consumer = hl2ss_mp.consumer()
     manager = mp.Manager()
     sink_ht = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_AHAT, manager, None)
     sink_lt = consumer.create_sink(producer, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, manager, None)
+    sink_si = consumer.create_sink(producer, hl2ss.StreamPort.SPATIAL_INPUT, manager, None)
 
     sink_ht.get_attach_response()
     sink_lt.get_attach_response()
+    sink_si.get_attach_response()
 
-    spi_client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
-    spi_client.open()
+    # spi_client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
+    # spi_client.open()
 
     navigation = False
     object_detect = False
@@ -565,9 +573,15 @@ if __name__ == '__main__':
     # Main loop ---------------------------------------------------------------
     while (enable):
         
-        data_lt, data_ht, si_data = synchronize_streams(sink_lt,sink_ht,spi_client)
+        #data_lt, data_ht, data_si = synchronize_streams(sink_lt,sink_ht,sink_si)
+        _ , data_lt = sink_lt.get_most_recent_frame()
+        #_, data_ht = sink_ht.get_nearest(data_lt.timestamp)
+        _, data_si = sink_si.get_nearest(data_lt.timestamp)
 
-        si = hl2ss.unpack_si(si_data.payload)
+        if data_lt is None or data_si is None:
+            continue
+
+        si = hl2ss.unpack_si(data_si.payload)
         target_up = np.array([0,1,0])
         if (si.is_valid_head_pose()):
 
@@ -586,12 +600,13 @@ if __name__ == '__main__':
 
             #rotation =  rotation_x * x_flip_rot
             #rotation = np.eye(3) * x_flip_rot
-            pose = np.eye(4) 
-            pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
-            pose[:3, :3] = roll_yaw_rot @ x_flip_rot
+            global_pose = np.eye(4)
+            rectified_local_pose = np.eye(4)
+            global_pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
+            rectified_local_pose[:3, :3] = roll_yaw_rot @ x_flip_rot
 
-            #pose[:3, 3] = head_pose.position
-            pose[:3, 3] = [0,0,0]
+            global_pose[:3, 3] = head_pose.position
+            rectified_local_pose[:3, 3] = [0,1.70,0]
 
             #print(pose)
             #print(f'Head pose: Position={head_pose.position} Forward={head_pose.forward} Up={head_pose.up}')
@@ -606,82 +621,84 @@ if __name__ == '__main__':
         #     cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_AHAT) + '-depth', data_ht.payload.depth * 64) # Scaled for visibility
         #     cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_AHAT) + '-ab', data_ht.payload.ab)
 
-        if (data_lt is not None and data_ht is not None):
-            cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-depth', data_lt.payload.depth * 8) # Scaled for visibility
-            cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-ab', data_lt.payload.ab)
+        #if (data_lt is not None and data_ht is not None):
+        cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-depth', data_lt.payload.depth * 8) # Scaled for visibility
+        cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-ab', data_lt.payload.ab)
 
-            # Preprocess frames ---------------------------------------------------
-            depth_lt = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
-            depth_lt = hl2ss_3dcv.rm_depth_normalize(depth_lt, scale_lt)
-            depth_ht = hl2ss_3dcv.rm_depth_undistort(data_ht.payload.depth, calibration_ht.undistort_map)
-            depth_ht = hl2ss_3dcv.rm_depth_normalize(depth_ht, scale_ht)
+        # Preprocess frames ---------------------------------------------------
+        depth_lt = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
+        depth_lt = hl2ss_3dcv.rm_depth_normalize(depth_lt, scale_lt)
+        # depth_ht = hl2ss_3dcv.rm_depth_undistort(data_ht.payload.depth, calibration_ht.undistort_map)
+        # depth_ht = hl2ss_3dcv.rm_depth_normalize(depth_ht, scale_ht)
 
-            depth = depth_lt
+        depth = depth_lt
+        # _ , blended_depth = merge_depth_images_with_focal_lengths(depth_lt,depth_ht,lt_focal_length,lt_resolution,ht_resolution)
+        # cv2.imshow("blended depth", blended_depth) # Scaled for visibility
 
-            _ , blended_depth = merge_depth_images_with_focal_lengths(depth_lt,depth_ht,calibration_lt.focal_length)
+        # Here merge two depth data
 
-            # Here merge two depth data
+        # Assuming you have the depth image and intrinsics setup
+        depth_image = o3d.geometry.Image(depth)
+        tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=o3d_lt_intrinsics, depth_scale=1)
+        ds_pcd = downsample_point_cloud(tmp_pcd,voxel_size=0.05)
+        # points = np.asarray(ds_pcd.points)
+        # print(points[:10,:])
+        global_pcd = ds_pcd.__copy__()
+        global_pcd.transform(global_pose)
 
-            # Assuming you have the depth image and intrinsics setup
-            depth_image = o3d.geometry.Image(depth)
-            tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=o3d_lt_intrinsics, depth_scale=1)
-            ds_pcd = downsample_point_cloud(tmp_pcd,voxel_size=0.05)
-            # points = np.asarray(ds_pcd.points)
-            # print(points[:10,:])
-            ds_pcd.transform(pose)
 
+        # points = np.asarray(ds_pcd.points)
+        # print(points[:10,:])
+        # Create a copy of the point cloud to modify colors
+        highlighted_pcd = o3d.geometry.PointCloud(global_pcd)
+        # Initialize colors: Set all points to black
+        colors = np.full((len(global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
 
-            # points = np.asarray(ds_pcd.points)
-            # print(points[:10,:])
-            # Create a copy of the point cloud to modify colors
-            highlighted_pcd = o3d.geometry.PointCloud(ds_pcd)
+        # Find floor inliers using RANSAC
+        floor_inliers = find_plane_ransac_o3d(global_pcd, head_height=rectified_local_pose[1,3])
+        bounding_boxes = []
+        
+        if len(floor_inliers) > 0:
 
-            # Initialize colors: Set all points to black
-            colors = np.full((len(ds_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
+            navigation = True
+            colors[floor_inliers] = [1, 0, 0]  # Highlight floor inliers in red
 
-            # Find floor inliers using RANSAC
-            floor_inliers = find_plane_ransac_o3d(ds_pcd, pose)
-            bounding_boxes = []
+            # Create a mask for non-floor points
+            non_floor_mask = np.ones(len(ds_pcd.points), dtype=bool)
+            non_floor_mask[floor_inliers] = False
+
+            # Apply DBSCAN clustering to non-floor points
+            cluster_labels, filtered_colors = dbscan_clustering(global_pcd, colors, non_floor_mask)
+            if cluster_labels.size > 0:
+                colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             
-            if len(floor_inliers) > 0:
+                # Bounding boxes in global frame
+                global_bounding_boxes, global_centers_and_radii = fit_bounding_boxes_with_threshold_and_order(global_pcd,cluster_labels, non_floor_mask, reference_point=(global_pose[0,3],global_pose[2,3]))
+                local_bounding_boxes, local_centers_and_radii = fit_bounding_boxes_with_threshold_and_order(ds_pcd,cluster_labels, non_floor_mask, reference_point=(0,0))
 
-                navigation = True
-                colors[floor_inliers] = [1, 0, 0]  # Highlight floor inliers in red
+                #centers_and_radii = get_xz_centers_and_radii(bounding_boxes)
+                #visualize_circles_2d_realtime(centers_and_radii)
+                if isinstance(local_centers_and_radii, list) and len(local_centers_and_radii) > 0:
+                    print(local_centers_and_radii[0])
+                else:
+                    print("centers_and_radii is either not a list or is empty.")
 
-                # Create a mask for non-floor points
-                non_floor_mask = np.ones(len(ds_pcd.points), dtype=bool)
-                non_floor_mask[floor_inliers] = False
+        # Update the colors in the copied point cloud
+        highlighted_pcd.colors = o3d.utility.Vector3dVector(colors)
 
-                # Apply DBSCAN clustering to non-floor points
-                cluster_labels, filtered_colors = dbscan_clustering(ds_pcd, colors, non_floor_mask)
-                if cluster_labels.size > 0:
-                    colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
-                
-                    bounding_boxes, centers_and_radii = fit_bounding_boxes_with_threshold_and_order(ds_pcd,cluster_labels, non_floor_mask, reference_point=(pose[0,3],pose[2,3]))
+        # Display point cloud --------------------------------------------------
+        pcd.points = highlighted_pcd.points
+        pcd.colors = highlighted_pcd.colors
 
-                    #centers_and_radii = get_xz_centers_and_radii(bounding_boxes)
-                    #visualize_circles_2d_realtime(centers_and_radii)
-                    if isinstance(centers_and_radii, list) and len(centers_and_radii) > 0:
-                        print(centers_and_radii[0])
-                    else:
-                        print("centers_and_radii is either not a list or is empty.")
+        if first_pcd:
+            vis.add_geometry(pcd)
+            first_pcd = False
+        else:
+            vis.update_geometry(pcd)
 
-            # Update the colors in the copied point cloud
-            highlighted_pcd.colors = o3d.utility.Vector3dVector(colors)
-
-            # Display point cloud --------------------------------------------------
-            pcd.points = highlighted_pcd.points
-            pcd.colors = highlighted_pcd.colors
-
-            if first_pcd:
-                vis.add_geometry(pcd)
-                first_pcd = False
-            else:
-                vis.update_geometry(pcd)
-
-            vis.poll_events()
-            vis.update_renderer()
-            #cv2.waitKey(1)
+        vis.poll_events()
+        vis.update_renderer()
+        #cv2.waitKey(1)
 
 
     # Stop streams ------------------------------------------------------------
