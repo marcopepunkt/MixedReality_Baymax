@@ -37,94 +37,103 @@ imu_port = hl2ss.StreamPort.RM_IMU_ACCELEROMETER
 #------------------------------------------------------------------------------
 
 import numpy as np
-from filterpy.kalman import KalmanFilter
 from scipy.spatial.transform import Rotation as R
 from sklearn.cluster import DBSCAN
 
-def synchronize_streams(sink_lt, client, tolerance=1e5):
+def synchronize_streams(sink_lt, sink_ht, spi_client, tolerance=1e5):
     """
     Synchronize the data streams from two sinks and the IMU client.
 
     Args:
-    - sink_ht: High-throughput data sink.
     - sink_lt: Low-throughput data sink.
-    - client: IMU data client.
-    - calibration_imu: IMU calibration matrix.
-    - tolerance: Maximum allowed time delta for synchronization (default: 1e3).
+    - sink_ht: High-throughput data sink.
+    - spi_client: IMU data client.
+    - tolerance: Maximum allowed time delta for synchronization (default: 1e5).
 
     Returns:
-    - data_ht: Synchronized high-throughput frame.
     - data_lt: Synchronized low-throughput frame.
-    - si_data: Synchronized IMU packet.
+    - data_ht: Synchronized high-throughput frame.
+    - spi_data: Synchronized IMU packet.
     """
-
     _, data_lt = sink_lt.get_most_recent_frame()
+    _, data_ht = sink_ht.get_most_recent_frame()
+    spi_data = spi_client.get_next_packet()
 
-    si_data = client.get_next_packet()
-    time_delta = data_lt.timestamp - si_data.timestamp
+    while True:
+        # Calculate time deltas
+        time_delta_lt_spi = data_lt.timestamp - spi_data.timestamp
+        time_delta_ht_spi = data_ht.timestamp - spi_data.timestamp
+        time_delta_ht_lt = data_ht.timestamp - data_lt.timestamp
 
-    # Synchronize streams
-    while abs(time_delta) > tolerance:
-        if time_delta > 0:  # IMU is behind, get the next IMU packet
-            si_data = client.get_next_packet()
-        else:  # Low-throughput data is behind, get the next frame
+        # Check if all streams are synchronized
+        if (
+            abs(time_delta_lt_spi) <= tolerance and
+            abs(time_delta_ht_spi) <= tolerance and
+            abs(time_delta_ht_lt) <= tolerance
+        ):
+            break
+
+        # Adjust streams based on time differences
+        if time_delta_lt_spi > tolerance:  # IMU is behind low-throughput
+            spi_data = spi_client.get_next_packet()
+        elif time_delta_lt_spi < -tolerance:  # Low-throughput is behind
             _, data_lt = sink_lt.get_most_recent_frame()
-        time_delta = data_lt.timestamp - si_data.timestamp
 
-    #print(f"Synchronized time delta: {time_delta}")
-    return data_lt, si_data
+        if time_delta_ht_spi > tolerance:  # IMU is behind high-throughput
+            spi_data = spi_client.get_next_packet()
+        elif time_delta_ht_spi < -tolerance:  # High-throughput is behind
+            _, data_ht = sink_ht.get_most_recent_frame()
 
-# Initialize Kalman filters for roll, pitch, yaw
-def initialize_kalman_filter():
-    kf = KalmanFilter(dim_x=2, dim_z=1)
-    kf.x = np.array([[0.], [0.]])  # Initial state (angle, angle_rate)
-    kf.F = np.array([[1., 1.], [0., 1.]])  # State transition matrix
-    kf.H = np.array([[1., 0.]])  # Measurement function
-    kf.P *= 1000.  # Initial uncertainty
-    kf.R = 5  # Measurement noise
-    kf.Q = np.array([[0.01, 0], [0, 0.1]])  # Process noise
-    return kf
+        # Synchronize high-throughput with low-throughput
+        if time_delta_ht_lt > tolerance:  # High-throughput is ahead
+            _, data_ht = sink_ht.get_most_recent_frame()
+        elif time_delta_ht_lt < -tolerance:  # Low-throughput is ahead
+            _, data_lt = sink_lt.get_most_recent_frame()
 
-# Separate filters for roll, pitch, yaw
-angle_filters = [initialize_kalman_filter() for _ in range(3)]
-
-def apply_kalman_filter(kf, measurement):
-    kf.predict()
-    kf.update(measurement)
-    return kf.x[0, 0]  # Return the filtered angle
-
-def stabilize_angles(pose_matrix):
+    return data_lt, data_ht, spi_data
+#------------------------------------------------------------------------------
+def merge_depth_images_with_focal_lengths(
+    depth_lt, depth_ht, focal_length_lt, focal_length_ht, lt_resolution, ht_resolution, smooth_kernel_size=15
+):
     """
-    Stabilize the angles (roll, pitch, yaw) in a 4x4 pose matrix using Kalman filtering.
-    
+    Merges two depth images (Long Throw and AHAT) where the center is from the LT sensor
+    and the outer areas are from the HT sensor, using the focal lengths to define the radius.
+
     Args:
-    - pose_matrix: np.array of shape (4, 4) representing the 4x4 pose matrix.
+    - depth_lt: Long Throw depth image (2D numpy array).
+    - depth_ht: AHAT depth image (2D numpy array).
+    - focal_length_lt: Focal length of the LT sensor in pixels.
+    - focal_length_ht: Focal length of the HT sensor in pixels.
+    - lt_resolution: Tuple of (width, height) of the LT image.
+    - ht_resolution: Tuple of (width, height) of the HT image.
+    - smooth_kernel_size: Size of the smoothing kernel for blending (default: 15).
 
     Returns:
-    - stabilized_pose: np.array of shape (4, 4) with stabilized rotation.
+    - merged_depth: Combined depth image.
+    - blended_depth: Smoothed and blended depth image.
     """
-    # Extract and convert rotation matrix to Euler angles
-    rotation_matrix = pose_matrix[:3, :3]
-    r = R.from_matrix(rotation_matrix)
-    roll, pitch, yaw = r.as_euler('xyz', degrees=False)
+    # Extract resolutions
+    lt_width, lt_height = lt_resolution
+    ht_width, ht_height = ht_resolution
 
-    # Apply Kalman filter to each Euler angle
-    filtered_angles = [
-        apply_kalman_filter(angle_filters[0], roll),
-        apply_kalman_filter(angle_filters[1], pitch),
-        apply_kalman_filter(angle_filters[2], yaw)
-    ]
+    # Calculate the radius for the LT region based on the LT focal length
+    radius_lt = int(focal_length_lt * lt_width / (2 * focal_length_lt))  # Adjust scaling if needed
+    radius_ht = int((radius_lt / lt_width) * ht_width)  # Scale to HT resolution
 
-    # Convert filtered angles back to a rotation matrix
-    filtered_rotation_matrix = R.from_euler('xyz', filtered_angles, degrees=False).as_matrix()
+    # Create a mask for the LT priority region
+    mask = np.zeros((ht_height, ht_width), dtype=np.uint8)
+    center = (ht_width // 2, ht_height // 2)
+    cv2.circle(mask, center, radius_ht, 1, thickness=-1)
 
-    # Reconstruct the stabilized pose matrix with the filtered rotation and original position
-    stabilized_pose = np.eye(4)
-    stabilized_pose[:3, :3] = filtered_rotation_matrix
-    stabilized_pose[:3, 3] = pose_matrix[:3, 3]  # Keep original position
+    # Merge the depth images using the mask
+    merged_depth = np.where(mask, depth_lt, depth_ht)
 
-    return stabilized_pose
+    # Smooth the boundaries for blending
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (smooth_kernel_size, smooth_kernel_size))
+    smooth_mask = cv2.dilate(mask, kernel, iterations=1).astype(np.float32)
+    blended_depth = smooth_mask * depth_lt + (1 - smooth_mask) * depth_ht
 
+    return merged_depth, blended_depth
 
 #------------------------------------------------------------------------------
 def transform_points(points, pose_matrix):
@@ -246,103 +255,6 @@ def find_plane_ransac_o3d(point_cloud, pose, max_iterations=100, distance_thresh
 
     return list(best_inliers)
 
-def find_floor_with_pose_ransac_o3d(point_cloud, pose_matrix, max_iterations=50, distance_threshold=0.01, min_inliers=1000, angle_threshold=10):
-    """
-    RANSAC algorithm to find the floor plane in a point cloud using IMU pose matrix for guidance.
-    
-    Args:
-    - point_cloud: open3d.geometry.PointCloud object representing the point cloud.
-    - pose_matrix: np.array of shape (4, 4) representing the 4x4 IMU pose matrix.
-    - max_iterations: Maximum iterations to run RANSAC for each plane.
-    - distance_threshold: Distance threshold to consider a point as inlier.
-    - min_inliers: Minimum number of inliers to consider a detected plane valid.
-    - angle_threshold: Maximum angle (in degrees) between plane normal and IMU normal to consider it as floor.
-
-    Returns:
-    - floor_plane_inliers: List of indices of the inliers of the floor plane in the original point cloud.
-    - floor_plane_height: The height (z-coordinate) of the floor plane.
-    """
-    # Convert Open3D point cloud to NumPy array
-    original_points = np.asarray(point_cloud.points)
-    #transformed_points = transform_points(original_points, pose_matrix)
-    transformed_points = original_points
-
-    # Initialize variables
-    points_remaining = transformed_points.copy()
-    original_indices = np.arange(len(transformed_points))  # Track original indices
-    floor_plane_inliers = []
-    floor_plane_height = float('inf')
-
-    # Extract the floor normal vector from the IMU pose matrix
-    imu_normal = extract_floor_normal_from_pose(pose_matrix)
-    print("IMU Normal:", imu_normal)
-
-    if imu_normal[2] < 0:
-        print("IMU is confused")
-        return None, None
-
-    while len(points_remaining) > min_inliers:
-        best_inliers = set()
-        best_plane = None
-
-        # Perform RANSAC to detect the largest plane
-        for _ in range(max_iterations):
-            # Randomly sample 3 points
-            sample_indices = random.sample(range(len(points_remaining)), 3)
-            p1, p2, p3 = points_remaining[sample_indices]
-
-            # Define the plane equation ax + by + cz + d = 0
-            vec1, vec2 = p2 - p1, p3 - p1
-            plane_normal = np.cross(vec1, vec2)
-            plane_normal = plane_normal / np.linalg.norm(plane_normal)  # Normalize
-
-            # Calculate angle between IMU normal and plane normal
-            angle = np.degrees(np.arccos(np.clip(np.dot(imu_normal, plane_normal), -1.0, 1.0)))
-
-            # Check if the plane normal aligns with the IMU normal
-            # if angle > angle_threshold:
-            #     continue  # Skip this plane if it doesn't match the expected floor orientation
-
-            # Plane equation constant
-            a, b, c = plane_normal
-            d = -(a * p1[0] + b * p1[1] + c * p1[2])
-
-            # Measure distances of all points to the plane
-            inliers = set()
-            for i, point in enumerate(points_remaining):
-                dist = abs(a * point[0] + b * point[1] + c * point[2] + d) / np.sqrt(a**2 + b**2 + c**2)
-                if dist < distance_threshold:
-                    inliers.add(i)
-
-            # Update best inliers if current set is larger
-            if len(inliers) > len(best_inliers):
-                best_inliers = inliers
-                best_plane = (a, b, c, d)
-                # angle = np.degrees(np.arccos(np.clip(np.dot(imu_normal, plane_normal), -1.0, 1.0)))
-                # print(angle)
-
-
-        # If no valid plane was found, break
-        if len(best_inliers) < min_inliers:
-            break
-
-        # Calculate the average height (z-coordinate) of the inlier points for this plane
-        plane_points = points_remaining[list(best_inliers)]
-        plane_height = np.mean(plane_points[:, 2])
-
-        # Check if this is the lowest plane so far
-        if plane_height < floor_plane_height:
-            floor_plane_height = plane_height
-            # Map inliers back to the original indices
-            floor_plane_inliers = [original_indices[i] for i in best_inliers]
-
-        # Remove inliers from remaining points
-        mask = np.ones(len(points_remaining), dtype=bool)
-        mask[list(best_inliers)] = False
-        points_remaining = points_remaining[mask]
-        original_indices = original_indices[mask]
-
-    return floor_plane_inliers, floor_plane_height
 #------------------------------------------------------------------------------
 def dbscan_clustering(point_cloud, colors, non_floor_mask, eps=0.1, min_samples=10):
     """
@@ -519,27 +431,6 @@ def visualize_circles_2d_realtime(centers_radii):
             ax.add_patch(circle)
             circles.append(circle)
 # -------------------------------------------------------------------------------------------
-def extract_floor_normal_from_pose(pose_matrix):
-    """
-    Extract the floor normal vector from a 4x4 pose matrix.
-    
-    Args:
-    - pose_matrix: np.array of shape (4, 4) representing the 4x4 IMU pose matrix.
-
-    Returns:
-    - floor_normal: np.array of shape (3,) representing the transformed floor normal.
-    """
-    # Extract the 3x3 rotation part of the pose matrix
-    rotation_matrix = pose_matrix[:3, :3]
-    
-    # Default floor normal (assuming floor is in +Z direction in IMU coordinate system)
-    default_floor_normal = np.array([0, 0, 1])
-
-    # Calculate the transformed floor normal in the point cloud's frame
-    floor_normal = rotation_matrix @ default_floor_normal  # Matrix-vector multiplication
-
-    # Normalize the resulting vector
-    return floor_normal / np.linalg.norm(floor_normal)
 
 def rotation_matrix_to_euler_angles(rotation_matrix):
     """
@@ -572,27 +463,6 @@ def rectify_pose(pose):
         quat = quat * -1
     pose[:3,:3] = R.from_quat(quat).as_matrix()
 
-def rotate_point_cloud_to_imu_frame(point_cloud):
-    """
-    Rotates the point cloud to align with the IMU frame where z is height.
-    
-    Args:
-    - point_cloud: open3d.geometry.PointCloud object representing the point cloud.
-
-    Returns:
-    - rotated_point_cloud: open3d.geometry.PointCloud object in the IMU frame.
-    """
-    # Define the 90-degree rotation around the x-axis
-    rotation_matrix = np.array([
-        [1, 0, 0],
-        [0, 0, -1],
-        [0, 1, 0]
-    ])
-
-    # Rotate the point cloud
-    rotated_point_cloud = point_cloud.rotate(rotation_matrix, center=(0, 0, 0))
-    
-    return rotated_point_cloud
 
 def keep_rotations_xz(rotation_matrix):
     """
@@ -648,12 +518,15 @@ if __name__ == '__main__':
     listener = keyboard.Listener(on_press=on_press)
     listener.start()
 
-    # Get RM Depth Long Throw calibration -------------------------------------
+    # Get Depth calibration -------------------------------------
     # Calibration data will be downloaded if it's not in the calibration folder
     calibration_lt = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_LONGTHROW, calibration_path)
+    calibration_ht = hl2ss_3dcv.get_calibration_rm(host, hl2ss.StreamPort.RM_DEPTH_AHAT, calibration_path)
 
     uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_lt.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
-    xy1, scale = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
+    _ , scale_lt = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_lt.scale)
+    uv2xy = hl2ss_3dcv.compute_uv2xy(calibration_ht.intrinsics, hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT)
+    _ , scale_ht = hl2ss_3dcv.rm_depth_compute_rays(uv2xy, calibration_ht.scale)
 
     # Create Open3D visualizer ------------------------------------------------
     o3d_lt_intrinsics = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
@@ -683,8 +556,8 @@ if __name__ == '__main__':
     sink_ht.get_attach_response()
     sink_lt.get_attach_response()
 
-    client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
-    client.open()
+    spi_client = hl2ss_lnm.rx_si(host, hl2ss.StreamPort.SPATIAL_INPUT)
+    spi_client.open()
 
     navigation = False
     object_detect = False
@@ -692,7 +565,7 @@ if __name__ == '__main__':
     # Main loop ---------------------------------------------------------------
     while (enable):
         
-        data_lt, si_data = synchronize_streams(sink_lt,client)
+        data_lt, data_ht, si_data = synchronize_streams(sink_lt,sink_ht,spi_client)
 
         si = hl2ss.unpack_si(si_data.payload)
         target_up = np.array([0,1,0])
@@ -733,13 +606,21 @@ if __name__ == '__main__':
         #     cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_AHAT) + '-depth', data_ht.payload.depth * 64) # Scaled for visibility
         #     cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_AHAT) + '-ab', data_ht.payload.ab)
 
-        if (data_lt is not None):
+        if (data_lt is not None and data_ht is not None):
             cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-depth', data_lt.payload.depth * 8) # Scaled for visibility
             cv2.imshow(hl2ss.get_port_name(hl2ss.StreamPort.RM_DEPTH_LONGTHROW) + '-ab', data_lt.payload.ab)
 
             # Preprocess frames ---------------------------------------------------
-            depth = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
-            depth = hl2ss_3dcv.rm_depth_normalize(depth, scale)
+            depth_lt = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
+            depth_lt = hl2ss_3dcv.rm_depth_normalize(depth_lt, scale_lt)
+            depth_ht = hl2ss_3dcv.rm_depth_undistort(data_ht.payload.depth, calibration_ht.undistort_map)
+            depth_ht = hl2ss_3dcv.rm_depth_normalize(depth_ht, scale_ht)
+
+            depth = depth_lt
+
+            _ , blended_depth = merge_depth_images_with_focal_lengths(depth_lt,depth_ht,calibration_lt.focal_length)
+
+            # Here merge two depth data
 
             # Assuming you have the depth image and intrinsics setup
             depth_image = o3d.geometry.Image(depth)
