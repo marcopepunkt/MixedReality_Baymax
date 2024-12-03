@@ -16,6 +16,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 import random
 from sklearn.cluster import DBSCAN
+import open3d as o3d
 
 import os
 
@@ -529,3 +530,72 @@ def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_m
     centers_radii = [centers_radii[i] for i in sorted_indices]
 
     return bounding_boxes, centers_radii
+
+
+def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=(0, 0, 0)):
+   
+    global_points = np.asarray(global_pcd.points)
+    local_points = np.asarray(local_pcd.points)
+
+    global_non_floor_points = global_points[non_floor_mask]
+    local_non_floor_points = local_points[non_floor_mask]
+
+    # Data holders for bounding boxes and centers
+    depths = []
+    global_centers = []
+    bounding_boxes = []
+
+    unique_labels = np.unique(labels)
+    for label in unique_labels:
+        if label == -1:
+            # Skip noise
+            continue
+
+        # Extract points belonging to the current cluster
+        global_cluster_points = global_non_floor_points[labels == label]
+        local_cluster_points = local_non_floor_points[labels == label]
+
+        # Skip clusters with fewer points than the threshold
+        if len(global_cluster_points) < min_points:
+            continue
+
+        # Create an Open3D point cloud for the cluster
+        global_cluster_pcd = o3d.geometry.PointCloud()
+        global_cluster_pcd.points = o3d.utility.Vector3dVector(global_cluster_points)
+
+        # Compute the axis-aligned bounding box (AABB)
+        aabb = global_cluster_pcd.get_axis_aligned_bounding_box()
+        bounding_boxes.append(aabb)
+
+        # Compute the center and depth (z-coordinate from local frame)
+        bbox_points = np.asarray(aabb.get_box_points())
+        depth = local_cluster_points[:,2].mean(axis=0)  # Local frame center
+        center_global = bbox_points.mean(axis=0)
+
+        depths.append(depth)
+        global_centers.append(center_global)
+
+    # Sort by distance to the local reference point
+    distances = [np.linalg.norm([cx - global_pose[0], cz - global_pose[1]]) for cx, cz in global_centers]
+    sorted_indices = np.argsort(distances)
+
+    # Create Object instances based on sorted order
+    objects = []
+    for idx in sorted_indices:
+        center_global = global_centers[idx]
+        aabb = bounding_boxes[idx]
+        depth = depths[idx]
+        box_min = aabb.min_bound
+        box_max = aabb.max_bound
+        box = (box_min[0], box_min[2], box_max[0] - box_min[0], box_max[2] - box_min[2])  # (x, y, w, h)
+
+        obj = Object(
+            label="obstacle",
+            p_center= None,
+            depth=depth,  # Use z from the local frame
+            box=box,
+        )
+        obj.world_pose = (center_global[0], center_global[1] , center_global[2])
+        objects.append(obj)
+
+    return objects

@@ -58,6 +58,9 @@ DISTANCE_THRESH = 0.1
 ANGLE_THRESH = 30.0
 MIN_INLIERS = 250
 
+# Clustering settings
+MIN_POINTS = 50
+
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
 TEXT_COLOR = (255, 255, 255)
@@ -503,10 +506,9 @@ class HoloLensDetection:
         if cluster_labels.size > 0:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             # Bounding boxes in global frame
-            global_bounding_boxes, global_centers_and_radii = utils.fit_bounding_boxes_with_threshold_and_order(global_pcd,cluster_labels, non_floor_mask, reference_point=(global_pose[0,3],global_pose[2,3]))
-            local_bounding_boxes, local_centers_and_radii = utils.fit_bounding_boxes_with_threshold_and_order(ds_pcd,cluster_labels, non_floor_mask, reference_point=(0,0))
+            obstacles = utils.process_bounding_boxes(global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=global_pose[:3,3])
 
-        return floor_detected, global_centers_and_radii, local_centers_and_radii
+        return obstacles
                 
         
 

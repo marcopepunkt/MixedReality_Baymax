@@ -676,6 +676,8 @@ if __name__ == '__main__':
                 global_bounding_boxes, global_centers_and_radii = fit_bounding_boxes_with_threshold_and_order(global_pcd,cluster_labels, non_floor_mask, reference_point=(global_pose[0,3],global_pose[2,3]))
                 local_bounding_boxes, local_centers_and_radii = fit_bounding_boxes_with_threshold_and_order(ds_pcd,cluster_labels, non_floor_mask, reference_point=(0,0))
 
+                # Create Object here
+
                 #centers_and_radii = get_xz_centers_and_radii(bounding_boxes)
                 #visualize_circles_2d_realtime(centers_and_radii)
                 if isinstance(local_centers_and_radii, list) and len(local_centers_and_radii) > 0:
