@@ -93,11 +93,11 @@ class HoloLensDetection:
         os.makedirs(CALIBRATION_PATH, exist_ok=True)
         
         # Load detection model
-        # detection_model = self.core.read_model(model=detection_model_path)
-        # self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
-        # self.input_layer = self.compiled_model.input(0)
-        # self.output_layer = self.compiled_model.output(0)
-        # self.height, self.width = list(self.input_layer.shape)[1:3]
+        detection_model = self.core.read_model(model=detection_model_path)
+        self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
+        self.input_layer = self.compiled_model.input(0)
+        self.output_layer = self.compiled_model.output(0)
+        self.height, self.width = list(self.input_layer.shape)[1:3]
 
         # Camera Parameters
         global calibration_lt, calibration_ht, lt_focal_length
