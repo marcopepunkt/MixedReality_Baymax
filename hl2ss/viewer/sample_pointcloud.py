@@ -171,7 +171,7 @@ def downsample_point_cloud(point_cloud, voxel_size):
     downsampled_point_cloud = point_cloud.voxel_down_sample(voxel_size)
     return downsampled_point_cloud
 
-def find_plane_ransac_o3d(point_cloud, head_height, max_iterations=100, distance_threshold=0.1, min_inliers=250, angle_threshold=30):
+def find_plane_ransac_o3d(point_cloud, head_height, max_iterations=50, distance_threshold=0.1, min_inliers=200, angle_threshold=30):
     """
     RANSAC algorithm to find the floor plane in a point cloud.
     """
@@ -257,7 +257,7 @@ def find_plane_ransac_o3d(point_cloud, head_height, max_iterations=100, distance
     return list(best_inliers)
 
 #------------------------------------------------------------------------------
-def dbscan_clustering(point_cloud, colors, non_floor_mask, eps=0.1, min_samples=10):
+def dbscan_clustering(point_cloud, colors, non_floor_mask, eps=0.15, min_samples=10):
     """
     Apply DBSCAN clustering to a point cloud.
 
@@ -640,7 +640,7 @@ if __name__ == '__main__':
         # Assuming you have the depth image and intrinsics setup
         depth_image = o3d.geometry.Image(depth)
         tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=o3d_lt_intrinsics, depth_scale=1)
-        ds_pcd = downsample_point_cloud(tmp_pcd,voxel_size=0.05)
+        ds_pcd = downsample_point_cloud(tmp_pcd,voxel_size=0.075)
         # points = np.asarray(ds_pcd.points)
         # print(points[:10,:])
         global_pcd = ds_pcd.__copy__()

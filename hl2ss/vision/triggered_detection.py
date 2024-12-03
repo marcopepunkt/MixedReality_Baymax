@@ -26,14 +26,6 @@ import utils
 # Import collision utilities
 import open3d as o3d
 
-# for Azure Computer Vision (object detection) model:
-from azure.cognitiveservices.vision.computervision import ComputerVisionClient
-from azure.cognitiveservices.vision.computervision.models import VisualFeatureTypes
-from msrest.authentication import CognitiveServicesCredentials
-
-#for Azure OpenAI
-import openai
-
 # image to byte
 from PIL import Image
 import io
@@ -52,14 +44,18 @@ DETECTION_SOUND_FREQ = 1000
 DETECTION_SOUND_DURATION = 200
 ERROR_SOUND_FREQ = 500
 
+# Downsampling
+VOXEL_SIZE=0.075
+
 # RANSAC settings
-MAX_ITERATIONS = 100
+MAX_ITERATIONS = 50
 DISTANCE_THRESH = 0.1
 ANGLE_THRESH = 30.0
-MIN_INLIERS = 250
+MIN_INLIERS = 200
 
 # Clustering settings
-MIN_POINTS = 50
+MIN_POINTS = 30
+DBSCAN_EPS = 0.15
 
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
@@ -71,18 +67,6 @@ enable = True
 calibration_lt = None
 last_detection_time = 0
 DETECTION_COOLDOWN = 2
-
-# for Azure Computer Vision resource, gets image description:
-# insert key (do not commit them)
-region = "switzerlandnorth"
-endpoint = "https://baymaxcv.cognitiveservices.azure.com/"
-key = "key"
-credentials = CognitiveServicesCredentials(key)
-client = ComputerVisionClient(
-    endpoint=endpoint,
-    credentials=credentials
-)
-
 
 class HoloLensDetection:
     def __init__(self, IP_ADDRESS):
@@ -109,11 +93,11 @@ class HoloLensDetection:
         os.makedirs(CALIBRATION_PATH, exist_ok=True)
         
         # Load detection model
-        detection_model = self.core.read_model(model=detection_model_path)
-        self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
-        self.input_layer = self.compiled_model.input(0)
-        self.output_layer = self.compiled_model.output(0)
-        self.height, self.width = list(self.input_layer.shape)[1:3]
+        # detection_model = self.core.read_model(model=detection_model_path)
+        # self.compiled_model = self.core.compile_model(model=detection_model, device_name="CPU")
+        # self.input_layer = self.compiled_model.input(0)
+        # self.output_layer = self.compiled_model.output(0)
+        # self.height, self.width = list(self.input_layer.shape)[1:3]
 
         # Camera Parameters
         global calibration_lt, calibration_ht, lt_focal_length
@@ -308,28 +292,6 @@ class HoloLensDetection:
             print(f"Detection error: {str(e)}")
             return None
 
-    def get_image_description_from_azureCV(self, frame):
-        # Convert the NumPy array to a PIL Image
-        frame = Image.fromarray(frame.astype('uint8'), 'RGB')
-        # Save the image to an in-memory byte stream
-        image_stream = io.BytesIO()
-        frame.save(image_stream, format="JPEG")  # Save as JPEG or PNG
-        image_stream.seek(0)  # Move the cursor to the beginning of the stream
-
-        # Call the Azure Computer Vision API
-        description_result = client.describe_image_in_stream(image_stream)
-
-        # Process and print the description
-        if description_result.captions:
-            description = description_result.captions[0].text
-            confidence = description_result.captions[0].confidence
-            print(f"Description: {description}")
-            print(f"Confidence: {confidence}")
-            return description
-        else:
-            print("No description available from azureCV for this frame.")
-            return None
-
     def start(self):
         try:
             print("Initializing...")
@@ -457,21 +419,21 @@ class HoloLensDetection:
         _, data_lt = self.sink_lt.get_most_recent_frame()
         if data_lt is None:
             print("No valid depth frame")
-            return []
+            return False, []
 
         # Get Spatial Input frame
         _, data_si = self.sink_si.get_nearest(data_lt.timestamp)
         if data_si is None:
             print("No valid SI frame")
-            return []
+            return False, []
         try:
             si = hl2ss.unpack_si(data_si.payload)
             if not si.is_valid_head_pose():
                 print("No valid SI frame")
-                return []
+                return False, []
         except:
             print("No valid SI frame")
-            return []
+            return False, []
         global_pose, _ = self.get_si_pose(si)
 
         depth = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
@@ -479,7 +441,7 @@ class HoloLensDetection:
 
         depth_image = o3d.geometry.Image(depth)
         tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=self.o3d_lt_intrinsics, depth_scale=1)
-        ds_pcd = utils.downsample_point_cloud(tmp_pcd,voxel_size=0.05)
+        ds_pcd = utils.downsample_point_cloud(tmp_pcd,voxel_size=VOXEL_SIZE)
         global_pcd = ds_pcd.__copy__()
         global_pcd.transform(global_pose)
 
@@ -501,14 +463,15 @@ class HoloLensDetection:
         non_floor_mask[floor_inliers] = False
 
         # Apply DBSCAN clustering to non-floor points
-        cluster_labels, filtered_colors = utils.dbscan_clustering(global_pcd, colors, non_floor_mask)
+        cluster_labels, filtered_colors = utils.dbscan_clustering(global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
 
+        obstacles = []
         if cluster_labels.size > 0:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             # Bounding boxes in global frame
             obstacles = utils.process_bounding_boxes(global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=global_pose[:3,3])
 
-        return obstacles
+        return floor_detected, obstacles
                 
         
 
@@ -534,6 +497,14 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection()
+    detector = HoloLensDetection(IP_ADDRESS="169.254.236.128")
     detector.start()
-    detector.run()
+    x = 0
+    while True:
+        floor_detected , obstacles = detector.run_collision_cycle()
+        if len(obstacles) > 0:
+            if floor_detected:
+                print(obstacles[0].depth, obstacles[0].world_pose)
+            else:
+                print("Floor not detected, obstacles could be wrong", obstacles[0].depth, obstacles[0].world_pose)
+        x +=1
