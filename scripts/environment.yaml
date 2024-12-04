@@ -27,3 +27,4 @@ dependencies:
       - google-generativeai
       - python-dotenv
       - scikit-learn
+      - pygame

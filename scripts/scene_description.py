@@ -17,6 +17,8 @@ import hl2ss_mp
 import google.generativeai as genai
 from dotenv import load_dotenv
 
+import pygame
+
 # Settings
 HOST = '10.1.0.143'
 PV_WIDTH = 640
