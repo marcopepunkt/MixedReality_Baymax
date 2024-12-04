@@ -1,5 +1,4 @@
 from triggered_detection import HoloLensDetection
-from pynput import keyboard
 from flask import jsonify, Flask, request
 from utils import objects_to_json, classes
 from scene_description import GeminiClient
