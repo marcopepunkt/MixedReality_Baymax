@@ -1,24 +1,16 @@
-import collections
-import time
-from pathlib import Path
 import json
 
 import cv2
 import numpy as np
-from IPython import display
-import openvino as ov
 from flask import jsonify
-from openvino.tools import mo
 
 from typing import List, Tuple
 
-import threading
 from concurrent.futures import ThreadPoolExecutor
 import random
 from sklearn.cluster import DBSCAN
 import open3d as o3d
 
-import os
 
 classes = [
     "background",
@@ -190,7 +182,7 @@ def objects_to_json_collisions(objects: List[Object]):
     data = []
     for obj in objects:
         obj_data = {
-            'class_name': label,
+            'class_name': obj.label,
             'priority': 1,
             'x': float(obj.world_pose[0]),
             'y': float(obj.world_pose[1]),

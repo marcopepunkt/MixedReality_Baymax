@@ -7,9 +7,11 @@ dependencies:
   - opencv
   - pillow>=7.1.2
   - pytorch>=1.7.0
+  - pip
   - torchvision>=0.8.1
   - pandas>=1.2.0
   - requests
+  - flask
   - pip:
       - openvino-dev>=2024.0.0
       - tensorflow
@@ -21,4 +23,7 @@ dependencies:
       - datasets
       - nncf
       - filterpy
-
+      - pyttsx3
+      - google-generativeai
+      - python-dotenv
+      - scikit-learn

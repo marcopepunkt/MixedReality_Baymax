@@ -1,13 +1,9 @@
-import sys
-import os
 import time
-from typing import List, Tuple
 import threading
 from pynput import keyboard
 import numpy as np
 import cv2
 import multiprocessing as mp
-from datetime import datetime
 # import pygame  # For cross-platform sound
 import pyttsx3
 import threading
