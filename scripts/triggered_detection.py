@@ -1,17 +1,10 @@
-import sys
 import os
 import time
-from typing import List, Tuple
+from typing import List
 import numpy as np
 import cv2
-import torch
-import winsound
 import multiprocessing as mp
 from datetime import datetime
-import requests
-import json
-
-import pyttsx3
 
 # Import HoloLens libraries
 import hl2ss
@@ -26,9 +19,6 @@ import utils
 # Import collision utilities
 import open3d as o3d
 
-# image to byte
-from PIL import Image
-import io
 
 # Settings
 CALIBRATION_PATH = "./calibration"
