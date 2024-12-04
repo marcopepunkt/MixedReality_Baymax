@@ -55,7 +55,7 @@ def collision_event():
         print("Request from unity app arrived to the flask server!")
         floor_detected, objects = app.run_collision_cycle()
         print("Detector ran successfully")
-        return objects_to_json(objects)
+        return objects_to_json_collisions(objects)
     except Exception as e:
         print("Detector Failed:", e)
         return None

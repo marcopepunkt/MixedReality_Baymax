@@ -183,6 +183,25 @@ def objects_to_json(objects: List[Object]):
     data.sort(key=lambda t: (t['priority'], t['depth']))
     return jsonify(data)
 
+def objects_to_json_collisions(objects: List[Object]):
+    if len(objects) == 0: # no objects detected, just send description to unity
+        return json.dumps([])
+
+    data = []
+    for obj in objects:
+        obj_data = {
+            'class_name': label,
+            'priority': 1,
+            'x': float(obj.world_pose[0]),
+            'y': float(obj.world_pose[1]),
+            'z': float(obj.world_pose[2]),
+            'depth': float(obj.depth)
+        }
+        data.append(obj_data)
+
+    return jsonify(data)
+
+
 
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
     """
