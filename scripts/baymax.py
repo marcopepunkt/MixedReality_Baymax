@@ -1,10 +1,10 @@
 from triggered_detection import HoloLensDetection
 from flask import jsonify, Flask, request
-from utils import objects_to_json, classes
+from utils import objects_to_json, classes, objects_to_json_collisions
 from scene_description import GeminiClient
 
 flask_server = Flask(__name__)
-app = HoloLensDetection(IP_ADDRESS="172.20.10.3")
+app = HoloLensDetection(IP_ADDRESS="172.20.10.2")
 gemini_client = GeminiClient()
 
 def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
@@ -71,7 +71,7 @@ def handle_speech():
 
     try:
         print("Request from unity app arrived to the flask server!")
-        objects = app.run()
+        objects = app.run_detection_cycle()
         # TODO: natural language processing uses gemini instead of open ai there. return here the object and depth information
         gemini_description = None
         if app.latest_frame is not None:
