@@ -193,8 +193,6 @@ def objects_to_json_collisions(objects: List[Object]):
 
     return jsonify(data)
 
-
-
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
     """
     Returns a list of center pixels for a given list of Object instances.

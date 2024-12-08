@@ -2,6 +2,7 @@ from triggered_detection import HoloLensDetection
 from flask import jsonify, Flask, request
 from utils import objects_to_json, classes, objects_to_json_collisions
 from scene_description import GeminiClient
+import google_maps
 
 flask_server = Flask(__name__)
 app = HoloLensDetection(IP_ADDRESS="172.20.10.2")
@@ -80,6 +81,30 @@ def handle_speech():
 
     except Exception as e:
         print("Detector Failed:", e)
+        return None
+
+@flask_server.route('/directions', methods=['GET', 'POST'])
+def main_directions():
+    if request.method == 'GET':
+        return "API is working! Send a POST request to use this endpoint."
+
+    # Handle POST request as usual
+    speech_text = request.form.get('speechText')
+    if not speech_text:
+        return jsonify({'error': 'No speech text provided'}), 400
+
+    try:
+        print("Request from unity app arrived to the flask server!")
+        main_instructions, stop_coordinates = google_maps.get_main_directions(speech_text)
+
+        if main_instructions is not None and stop_coordinates is not None:
+            return jsonify(main_instructions=main_instructions, stop_coordinates=stop_coordinates)
+        else:
+            print("Directions Failed")
+            return None
+
+    except Exception as e:
+        print("Directions Failed:", e)
         return None
 
 
