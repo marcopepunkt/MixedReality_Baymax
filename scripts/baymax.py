@@ -2,6 +2,7 @@ from triggered_detection import HoloLensDetection
 from flask import jsonify, Flask, request
 from utils import objects_to_json, classes, objects_to_json_collisions
 from scene_description import GeminiClient
+import google_maps
 
 flask_server = Flask(__name__)
 app = HoloLensDetection(IP_ADDRESS="172.20.10.2")
@@ -80,6 +81,82 @@ def handle_speech():
 
     except Exception as e:
         print("Detector Failed:", e)
+        return None
+
+@flask_server.route('/directions', methods=['GET', 'POST'])
+def main_directions():
+    if request.method == 'GET':
+        return "API is working! Send a POST request to use this endpoint."
+
+    # Handle POST request as usual
+    address = request.form.get('speechText')
+    if not address:
+        return jsonify({'error': 'No speech text provided'}), 400
+
+    try:
+        print("Request from unity app arrived to the flask server!")
+        main_instructions, stop_coordinates = google_maps.get_main_directions(address)
+
+        if main_instructions is not None and stop_coordinates is not None:
+            response = jsonify(main_instructions=main_instructions, stop_coordinates=stop_coordinates)
+            print(response.get_json())
+            return response
+        else:
+            print("Directions Failed")
+            return None
+
+    except Exception as e:
+        print("Directions Failed:", e)
+        return None
+
+@flask_server.route('/walking_directions', methods=['GET', 'POST'])
+def walking_directions():
+    if request.method == 'GET':
+        return "API is working! Send a POST request to use this endpoint."
+
+    # Handle POST request as usual
+    gps_coords = request.form.get('speechText')
+    if not gps_coords:
+        return jsonify({'error': 'No speech text provided'}), 400
+
+    try:
+        print("Request from unity app arrived to the flask server!")
+        subinstructions = google_maps.get_walking_directions(gps_coords)
+
+        if subinstructions is not None:
+            return jsonify(subinstructions=subinstructions)
+        else:
+            print("Directions Failed")
+            return None
+
+    except Exception as e:
+        print("Directions Failed:", e)
+        return None
+
+@flask_server.route('/compare_gps', methods=['GET', 'POST'])
+def compare_gps():
+    if request.method == 'GET':
+        return "API is working! Send a POST request to use this endpoint."
+
+    # Handle POST request as usual
+    target_lat = request.form.get('target_lat')
+    target_lng = request.form.get('target_lng')
+
+    if not target_lng or not target_lat:
+        return jsonify({'error': 'at least one gps coordinate was not provided'}), 400
+
+    try:
+        print("Request from unity app arrived to the flask server!")
+        distance_to_target = google_maps.compute_distance_to_target(target_lat, target_lng)
+
+        if distance_to_target is not float('nan'):
+            return jsonify(distance_to_target=distance_to_target)
+        else:
+            print("GPS comparison failed")
+            return None
+
+    except Exception as e:
+        print("GPS comparison failed:", e)
         return None
 
 
