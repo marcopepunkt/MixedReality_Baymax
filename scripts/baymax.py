@@ -5,7 +5,7 @@ from scene_description import GeminiClient
 import google_maps
 
 flask_server = Flask(__name__)
-app = HoloLensDetection(IP_ADDRESS="172.20.10.2")
+app = HoloLensDetection(IP_ADDRESS="169.254.236.128")
 gemini_client = GeminiClient()
 
 def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
@@ -60,8 +60,18 @@ def collision_event():
         print("Detector Failed:", e)
         return None
 
+@flask_server.route('/initialize_streams', methods=['GET'])
+def init_streams():
+    app.start()
+
+@flask_server.route('/stop_streams', methods=['GET'])
+def stop_streams():
+    app.cleanup()
+
 @flask_server.route('/api', methods=['GET', 'POST'])
 def handle_speech():
+    # TODO: put app.start() and app.cleanup() in here, so the stream starts new everytime
+
     if request.method == 'GET':
         return "API is working! Send a POST request to use this endpoint."
 
@@ -73,7 +83,6 @@ def handle_speech():
     try:
         print("Request from unity app arrived to the flask server!")
         objects = app.run_detection_cycle()
-        # TODO: natural language processing uses gemini instead of open ai there. return here the object and depth information
         gemini_description = None
         if app.latest_frame is not None:
             gemini_description = get_scene_description(app.latest_frame, objects, speech_text)
@@ -162,10 +171,10 @@ def compare_gps():
 
 if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
-    app.start()
+    app.start()  # TODO:Remove here and call init function
     try:
         flask_server.run(host="0.0.0.0", port=5000, debug=False)
     finally:
         print("Stopping the Processor")
         # Cleanup the detector ------------------------------------------------ 
-        app.cleanup()
+        app.cleanup() # TODO:Remove here and call stop function

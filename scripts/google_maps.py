@@ -5,7 +5,7 @@ import receive_gps
 from math import radians, sin, cos, sqrt, atan2
 
 # TODO: insert key of your Google Cloud/Maps platform (need to make an account)
-KEY = 'key'
+KEY = 'none'
 gmaps = googlemaps.Client(key=KEY)
 
 def time_difference_in_hours_and_minutes(time1, time2):

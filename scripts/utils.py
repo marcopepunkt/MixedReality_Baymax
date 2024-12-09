@@ -585,7 +585,7 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
         global_centers.append(center_global)
 
     # Sort by distance to the local reference point
-    distances = [np.linalg.norm([cx - global_pose[0], cz - global_pose[1]]) for cx, cz in global_centers]
+    distances = [np.linalg.norm([cx - global_pose[0], cy - global_pose[1], cz - global_pose[2]]) for cx, cy, cz in global_centers]
     sorted_indices = np.argsort(distances)
 
     # Create Object instances based on sorted order
@@ -604,7 +604,8 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
             depth=depth,  # Use z from the local frame
             box=box,
         )
-        obj.world_pose = (center_global[0], center_global[1] , center_global[2])
+        #obj.world_pose = (center_global[0], center_global[1] , center_global[2])
+        obj.world_pose = (center_global[2], -center_global[0], center_global[1])
         objects.append(obj)
 
     return objects

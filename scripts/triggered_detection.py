@@ -23,9 +23,9 @@ import open3d as o3d
 # Settings
 CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
-PV_HEIGHT = 360
-PV_FRAMERATE = 15
-BUFFER_LENGTH = 5
+PV_HEIGHT = 360 # TODO: can decrease
+PV_FRAMERATE = 15 # TODO: can decrease
+BUFFER_LENGTH = 2 # was 5
 MAX_SENSOR_DEPTH = 10
 VOICE_COMMANDS = ['detect']
 
@@ -359,6 +359,8 @@ class HoloLensDetection:
             print("No valid PV frame")
             return []
 
+        print(data_pv.timestamp)
+
         # Get frame and check if it's valid
         frame = data_pv.payload.image
         self.latest_frame = frame
@@ -388,12 +390,13 @@ class HoloLensDetection:
 
             else:
                 print("\nPlease wait before next detection")
-            
+
             # Show frame
-            # if vis_frame is not None:
-            #     vis_frame = cv2.cvtColor(vis_frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
-                # cv2.imshow("HoloLens Detection", vis_frame)
-                # cv2.waitKey(1)
+            if self.latest_frame is not None:
+                frame = cv2.cvtColor(self.latest_frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
+                cv2.imshow("HoloLens Detection", frame)
+                cv2.waitKey(1)
+                print("new frame")
 
         except Exception as e:
             print(f"Frame processing error: {str(e)}")
@@ -487,7 +490,7 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="169.254.236.128")
+    detector = HoloLensDetection(IP_ADDRESS="172.20.10.14")
     detector.start()
     x = 0
     while True:
