@@ -1,5 +1,8 @@
 import time
 import threading
+
+from google.api_core import retry
+from google.generativeai.types import RequestOptions
 from pynput import keyboard
 import numpy as np
 import cv2
@@ -119,7 +122,7 @@ class GeminiClient:
             prompt_parts = [prompt]
             
             # Generate description
-            response = self.model.generate_content(prompt_parts + image_parts)
+            response = self.model.generate_content(prompt_parts + image_parts, request_options=RequestOptions(retry=retry.Retry(initial=10, multiplier=2, maximum=60, timeout=300)))
             
             # Check if response was blocked
             if response.prompt_feedback.block_reason:

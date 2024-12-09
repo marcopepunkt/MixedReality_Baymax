@@ -365,7 +365,7 @@ class HoloLensDetection:
         frame = data_pv.payload.image
         self.latest_frame = frame
         if frame is None:
-            #print("Invalid frame")
+            print("Invalid frame")
             return []
 
         # vis_frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)  # Convert BGRA to BGR
