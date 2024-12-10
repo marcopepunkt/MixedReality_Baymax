@@ -75,6 +75,17 @@ def collision_event():
         print("Detector Failed:", e)
         return None
 
+@flask_server.route('/callibrate_detector', methods=['GET'])
+def calibrate_detector():
+    
+    for _ in range(50): # Sometimes it takes a couple loops for the stream to set in
+        if app.init_head_pose():
+            print("Calibration Success")
+            return "Calibration Successful"
+    print("Calibration Failed, Try Again or Restart the app")
+    return "Calibration Failed"
+
+
 @flask_server.route('/initialize_streams', methods=['GET'])
 def init_streams():
     app.start()

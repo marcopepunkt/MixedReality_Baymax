@@ -76,6 +76,8 @@ class HoloLensDetection:
         self.latest_depth = None
         self.detection_active = False
         self.detection_results = []
+        self.head_calibrated = False
+        self.head_inverse_matrix = None
         self.last_detection_time = time.time()
 
         # Initialize OpenVINO
@@ -163,7 +165,40 @@ class HoloLensDetection:
             print(f"Error initializing streams: {str(e)}")
             raise
 
- 
+    def init_head_pose(self):
+
+         # Get Spatial Input frame
+        _, data_si = self.sink_si.get_most_recent_frame()
+        if data_si is None:
+            print("No valid SI frame")
+            return False
+        try:
+            si = hl2ss.unpack_si(data_si.payload)
+            if not si.is_valid_head_pose():
+                print("No valid SI frame")
+                return False, [], None, None
+        except:
+            print("No valid SI frame")
+            return False
+        
+        head_pose = si.get_head_pose()
+        up = head_pose.up
+        forward = np.array(head_pose.forward)
+        right = np.cross(up, -forward)
+
+        # up => y, forward => -z, right => x
+        full_rotation = np.column_stack((right, up, -forward))
+        global_pose = np.eye(4)
+        global_pose[:3, :3] = full_rotation
+        global_pose[:3, 3] = head_pose.position
+
+        # Apply this matrix to all transformations to get pose relative to initial state
+        self.head_inverse_matrix = np.linalg.inv(global_pose)
+
+        self.calibrated = True
+        return True
+
+
 
     def draw_detection_results(self, frame, boxes, objects):
         """Draw detection results on the frame"""
@@ -334,19 +369,20 @@ class HoloLensDetection:
 
         # up => y, forward => -z, right => x
         full_rotation = np.column_stack((right, up, -forward))
-        roll_yaw_rot = utils.keep_rotations_xz(full_rotation)
 
-        #rotation =  rotation_x * x_flip_rot
-        #rotation = np.eye(3) * x_flip_rot
         global_pose = np.eye(4)
-        rectified_local_pose = np.eye(4)
-        global_pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
-        rectified_local_pose[:3, :3] = roll_yaw_rot @ x_flip_rot
-
+        global_pose[:3, :3] = full_rotation @ x_flip_rot
         global_pose[:3, 3] = head_pose.position
-        rectified_local_pose[:3, 3] = [0,1.70,0]
+
+        unity_global_pose = global_pose
+        unity_global_pose[:3,2] *= -1
+        unity_global_pose[:3,3] *= -1  # Z-axis is inverted 
+
+        calibrated_global_pose = global_pose
+        if self.calibrated:
+            calibrated_global_pose = self.head_inverse_matrix @ global_pose
         
-        return global_pose, rectified_local_pose
+        return global_pose, unity_global_pose, calibrated_global_pose
 
     def run_detection_cycle(self):
         print("Starting object detection!")
@@ -433,7 +469,19 @@ class HoloLensDetection:
         except:
             print("No valid SI frame")
             return False, [], None, None
-        global_pose, _ = self.get_si_pose(si)
+        
+        # This is important, there are three transformations:
+
+        global_pose, unity_global_pose, calibrated_global_pose = self.get_si_pose(si)
+
+        #   - global_pose: transformation from local to hololense global frame (initiated when the app is launched, but not super sure when)
+        #   - unity_global_pose: Same as global pose, but Z-Axis is inverted to align with Unity frame
+        #   - calibrated_global_frame: The user can decide to calibrate the tracker, this will help reset the "pseudo" global frame to a horizontal position.
+        #   Why?
+        #   1) Because sometimes, original global frame is not horizontal and it will mess up the detection.
+        #   2) If someone else puts on the hololens, we don't have to restart the app if there is a large height difference (not a big deal).
+        #   3) Can help adjust to drift        
+        #   If the user hasn't calibrated, it will fall back to original global frame.  
 
         depth = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
         depth = hl2ss_3dcv.rm_depth_normalize(depth, self.scale_lt)
@@ -441,15 +489,18 @@ class HoloLensDetection:
         depth_image = o3d.geometry.Image(depth)
         tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=self.o3d_lt_intrinsics, depth_scale=1)
         ds_pcd = utils.downsample_point_cloud(tmp_pcd,voxel_size=VOXEL_SIZE)
+
         global_pcd = ds_pcd.__copy__()
+        calibrated_global_pcd = ds_pcd.__copy__()
         global_pcd.transform(global_pose)
+        calibrated_global_pcd.transform(calibrated_global_pose)
 
         # For debug
-        colors = np.full((len(global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
+        colors = np.full((len(calibrated_global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
 
-        # Find floor inliers using RANSAC
-        floor_inliers = utils.find_plane_ransac_o3d(global_pcd,
-                                                    head_height=1.70,
+        # Find floor inliers using RANSAC - Using Calibrated Data
+        floor_inliers = utils.find_plane_ransac_o3d(calibrated_global_pcd,
+                                                    head_height=1.70,  #TODO: Check this, I don't think I need it, could be causing the table problems
                                                     max_iterations=MAX_ITERATIONS,distance_threshold=DISTANCE_THRESH,
                                                     angle_threshold=ANGLE_THRESH,min_inliers=MIN_INLIERS)
         floor_detected = False
@@ -460,24 +511,22 @@ class HoloLensDetection:
         colors[floor_inliers] = [1, 0, 0]  # Highlight floor inliers in red
         non_floor_mask[floor_inliers] = False
 
-        # Apply DBSCAN clustering to non-floor points
-        cluster_labels, filtered_colors = utils.dbscan_clustering(global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
+        # Apply DBSCAN clustering to non-floor points - Using Calibrated Data
+        cluster_labels, filtered_colors = utils.dbscan_clustering(calibrated_global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
 
         # Compute Obstacles
         obstacles = []
         if cluster_labels.size > 0:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             current_time = time.time()
-            # Bounding boxes in global frame
+            # Bounding boxes in global frame - Using ORIGINAL global pose
             obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(global_pose[:3,3]),timestamp=current_time)
        
-        # Compute heading    
-        heading_angle, heading_point = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
+        # Compute heading - Using Unity Frame  
+        heading_angle, heading_point = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
 
         return floor_detected, obstacles, heading_angle, heading_point
                 
-        
-
     def cleanup(self):
         """Cleanup resources"""
         print("\nCleaning up...")
@@ -500,7 +549,7 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="172.20.10.14")
+    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245")
     detector.start()
     x = 0
     while True:
