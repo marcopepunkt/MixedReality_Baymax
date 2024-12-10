@@ -29,3 +29,4 @@ dependencies:
       - scikit-learn
       - pygame
       - IPython
+      - googlemaps

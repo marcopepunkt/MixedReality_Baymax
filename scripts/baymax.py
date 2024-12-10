@@ -2,11 +2,21 @@ from triggered_detection import HoloLensDetection
 from flask import jsonify, Flask, request
 from utils import objects_to_json, classes, objects_to_json_collisions
 from scene_description import GeminiClient
-import google_maps
+from google_maps import GoogleMapsClient
+
+import argparse
+import json
+
+# add argparse arguments
+parser = argparse.ArgumentParser(description="Parse API KEY")
+parser.add_argument("--API_KEY", default="none", help="API Key for Gemini")
+parser.add_argument("--IP", default="169.254.236.128", help="hololense IP address")
+args_cli = parser.parse_args()
 
 flask_server = Flask(__name__)
-app = HoloLensDetection(IP_ADDRESS="169.254.236.128")
-gemini_client = GeminiClient()
+app = HoloLensDetection(IP_ADDRESS=args_cli.IP)
+gemini_client = GeminiClient(args_api_key=args_cli.API_KEY)
+google_maps_client = GoogleMapsClient(args_api_key=args_cli.API_KEY)
 
 def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
     """Get scene description using Gemini"""
@@ -55,7 +65,12 @@ def collision_event():
         print("Request from unity app arrived to the flask server!")
         floor_detected, objects = app.run_collision_cycle()
         print("Detector ran successfully")
-        return objects_to_json_collisions(objects)
+        if floor_detected:
+            print("floor")
+            return objects_to_json_collisions(objects)
+        else:
+            print("No floor")
+            return json.dumps([])
     except Exception as e:
         print("Detector Failed:", e)
         return None
@@ -104,7 +119,7 @@ def main_directions():
 
     try:
         print("Request from unity app arrived to the flask server!")
-        main_instructions, stop_coordinates = google_maps.get_main_directions(address)
+        main_instructions, stop_coordinates = google_maps_client.get_main_directions(address)
 
         if main_instructions is not None and stop_coordinates is not None:
             response = jsonify(main_instructions=main_instructions, stop_coordinates=stop_coordinates)
@@ -130,7 +145,7 @@ def walking_directions():
 
     try:
         print("Request from unity app arrived to the flask server!")
-        subinstructions = google_maps.get_walking_directions(gps_coords)
+        subinstructions = google_maps_client.get_walking_directions(gps_coords)
 
         if subinstructions is not None:
             return jsonify(subinstructions=subinstructions)
@@ -156,7 +171,7 @@ def compare_gps():
 
     try:
         print("Request from unity app arrived to the flask server!")
-        distance_to_target = google_maps.compute_distance_to_target(target_lat, target_lng)
+        distance_to_target = google_maps_client.compute_distance_to_target(target_lat, target_lng)
 
         if distance_to_target is not float('nan'):
             return jsonify(distance_to_target=distance_to_target)
@@ -173,7 +188,7 @@ if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
     app.start()  # TODO:Remove here and call init function
     try:
-        flask_server.run(host="0.0.0.0", port=5000, debug=False)
+        flask_server.run(host="0.0.0.0", port=6000, debug=False)
     finally:
         print("Stopping the Processor")
         # Cleanup the detector ------------------------------------------------ 

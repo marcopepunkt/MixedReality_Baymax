@@ -329,6 +329,7 @@ class HoloLensDetection:
 
         #rotation =  rotation_x * x_flip_rot
         #rotation = np.eye(3) * x_flip_rot
+        print("Head: ",head_pose.position)
         global_pose = np.eye(4)
         rectified_local_pose = np.eye(4)
         global_pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
@@ -490,7 +491,7 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="172.20.10.14")
+    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245")
     detector.start()
     x = 0
     while True:

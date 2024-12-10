@@ -177,7 +177,8 @@ def objects_to_json(objects: List[Object]):
 
 def objects_to_json_collisions(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
-        return json.dumps([])
+        print("empty")
+        return json.dumps([])  #TODO: Problem here
 
     data = []
     for obj in objects:
@@ -604,8 +605,13 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
             depth=depth,  # Use z from the local frame
             box=box,
         )
-        #obj.world_pose = (center_global[0], center_global[1] , center_global[2])
-        obj.world_pose = (center_global[2], -center_global[0], center_global[1])
-        objects.append(obj)
 
+        # Unity global frame
+        obj.world_pose = (center_global[0], center_global[1] , -center_global[2])
+        print(obj.world_pose)
+        #obj.world_pose = (0, 0 , 0)
+
+        objects.append(obj)
+    objects = [objects[0]]
+    #print(objects[0].world_pose)
     return objects
