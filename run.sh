@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Default values
-DEFAULT_API_KEY="KEY HERE"
-DEFAULT_IP="IP HERE"
+DEFAULT_API_KEY="AIzaSyD9yl2md73tLb9XkkC56m4T4KVH8yFmsVg"
+DEFAULT_IP="192.168.1.245"
 
 # Parse arguments
 API_KEY=$DEFAULT_API_KEY

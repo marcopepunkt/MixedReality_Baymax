@@ -6,10 +6,17 @@ from flask import jsonify
 
 from typing import List, Tuple
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 from sklearn.cluster import DBSCAN
 import open3d as o3d
+
+# Obstacle Buffer settings
+MAX_RADIUS = 3
+MAX_OBJECTS = 10
+MAX_SIMILARITY_DISTANCE = 0.5
+MIN_COUNT = 3
+MAX_TIME = 5
 
 
 classes = [
@@ -127,12 +134,15 @@ for cls in classes:
 
 class Object:
     def __init__(self, label, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+        
         self.label = label
         self.center = p_center  # (x, y)
         self.depth = depth
         self.box = box  # (x, y, w, h)
 
         self.world_pose = None
+        self.timestamp = 0.0
+        self.radius = 0.0
     
     def get_box_corners(self) -> List[Tuple[float, float]]:
         x, y, w, h = self.box
@@ -144,6 +154,72 @@ class Object:
         top_right = (x + w, y + h)
         
         return [bottom_left, bottom_right, top_right, top_left]
+    
+    def dist(self,pos):
+
+        if self.world_pose is not None and pos is not None:
+            return np.sqrt((self.world_pose[0]-pos[0])**2+(self.world_pose[1]-pos[1])**2+(self.world_pose[2]-pos[2])**2)
+        else:
+            return None
+        
+class Object_Buffer:
+
+    class Candidate:
+        def __init__(self,obj):
+            self.object = obj
+            self.count = 1
+ 
+    def __init__(self):
+        self.buffer: List[Object] = []
+        self.candidates: List[Object_Buffer.Candidate] = []
+
+    def update(self, objects, timestamp, head_pos):
+
+        # Process incoming objects
+        new_candidates = []
+        for obj_new in objects:
+            matched = False
+            for candidate in self.candidates:
+                # Calculate distance to existing candidate
+                d = candidate.object.dist(obj_new.world_pose)
+                if d is not None and d < MAX_SIMILARITY_DISTANCE:
+                    # Update the candidate's position and timestamp
+                    candidate.object.world_pose = (
+                        candidate.object.world_pose * candidate.count + obj_new.world_pose
+                    ) / (candidate.count + 1)
+                    candidate.count += 1
+                    candidate.object.timestamp = obj_new.timestamp
+                    candidate.object.depth = np.linalg.norm(candidate.object.world_pose - head_pos)
+                    matched = True
+                    break
+            if not matched:
+                # Add new object as a candidate
+                new_candidates.append(self.Candidate(obj_new))
+        
+        # Add new candidates to the list
+        self.candidates.extend(new_candidates)
+        
+        # Update candidates
+        candidates_ = []
+        filtered_candidates = []
+        for candidate in self.candidates:
+            if timestamp - candidate.object.timestamp < MAX_TIME:
+                dist = candidate.object.depth
+                candidates_.append((dist,candidate))
+                if dist is not None and dist < MAX_RADIUS:
+                    filtered_candidates.append((dist, candidate))
+
+        # Sort by distance
+        candidates_.sort(key=lambda x: x[0])
+        filtered_candidates = [candidate for (dist,candidate) in candidates_ if dist < MAX_RADIUS]
+        max_candidtates = min(len(filtered_candidates),MAX_OBJECTS*3)
+        self.candidates = filtered_candidates[:max_candidtates]
+        
+        # Update buffer with the MAX_OBJECTS closest candidates
+        max_objects = min(len(filtered_candidates),MAX_OBJECTS)
+        self.buffer = [candidate.object for candidate in filtered_candidates[:max_objects]]
+
+
 
 # def objects_to_json(objects: List[Object]) -> str:
 #     data = []
@@ -177,7 +253,6 @@ def objects_to_json(objects: List[Object]):
 
 def objects_to_json_collisions(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
-        print("empty")
         return json.dumps([])  #TODO: Problem here
 
     data = []
@@ -541,17 +616,37 @@ def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_m
 
     return bounding_boxes, centers_radii
 
+def fit_quadratic_and_tangent(points):
+    # Extract first and last points
+    x1, y1 = points[0]
+    xn, yn = points[-1]
 
-def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=(0, 0, 0)):
+    # Create design matrix and solve for coefficients
+    A = np.array([[x1**2, x1, 1], [xn**2, xn, 1]])
+    b = np.array([y1, yn])
+    coeffs = np.linalg.lstsq(A, b, rcond=None)[0]  # [a, b, c]
+
+    a, b, c = coeffs
+
+    # Compute slope at the first point
+    slope = 2 * a * x1 + b
+
+    # Determine the sign of the x-component based on the direction of the curve
+    x_component = 1 if (xn > x1) else -1
+
+    # Construct tangent vector
+    tangent_vector = np.array([x_component, x_component * slope])  # [dx, dy]
+    tangent_vector /= np.linalg.norm(tangent_vector)  # Normalize for consistency if needed
+
+    return tangent_vector
+
+
+def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=np.array([0, 0, 0]), timestamp=0.0):
    
     global_points = np.asarray(global_pcd.points)
-    local_points = np.asarray(local_pcd.points)
-
     global_non_floor_points = global_points[non_floor_mask]
-    local_non_floor_points = local_points[non_floor_mask]
 
     # Data holders for bounding boxes and centers
-    depths = []
     global_centers = []
     bounding_boxes = []
 
@@ -563,7 +658,6 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
 
         # Extract points belonging to the current cluster
         global_cluster_points = global_non_floor_points[labels == label]
-        local_cluster_points = local_non_floor_points[labels == label]
 
         # Skip clusters with fewer points than the threshold
         if len(global_cluster_points) < min_points:
@@ -579,10 +673,7 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
 
         # Compute the center and depth (z-coordinate from local frame)
         bbox_points = np.asarray(aabb.get_box_points())
-        depth = local_cluster_points[:,2].mean(axis=0)  # Local frame center
         center_global = bbox_points.mean(axis=0)
-
-        depths.append(depth)
         global_centers.append(center_global)
 
     # Sort by distance to the local reference point
@@ -594,7 +685,7 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
     for idx in sorted_indices:
         center_global = global_centers[idx]
         aabb = bounding_boxes[idx]
-        depth = depths[idx]
+        depth = distances[idx]  # TODO:Not actually depth, it is distance, change name
         box_min = aabb.min_bound
         box_max = aabb.max_bound
         box = (box_min[0], box_min[2], box_max[0] - box_min[0], box_max[2] - box_min[2])  # (x, y, w, h)
@@ -607,11 +698,94 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
         )
 
         # Unity global frame
-        obj.world_pose = (center_global[0], center_global[1] , -center_global[2])
-        print(obj.world_pose)
+        obj.world_pose = np.array([center_global[0], center_global[1] , -center_global[2]])
+        obj.radius = np.sqrt(box[2]**2+box[3]**2)/2
+        obj.timestamp = timestamp
         #obj.world_pose = (0, 0 , 0)
-
         objects.append(obj)
-    objects = [objects[0]]
-    #print(objects[0].world_pose)
-    return objects
+
+    if floor_detected:
+        if objects:
+            object_buffer.update(objects,timestamp,global_pose)
+        return object_buffer.buffer
+    else:
+        if objects and depth < 1.0:
+            return [objects[0]] # Only give imediate collision risk
+        else:
+            return []
+
+def find_heading(object_buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages):
+    num_samples = int(num_samples)
+    r = float(heading_radius)
+
+    origin = np.array([head_transform[0, 3], head_transform[2, 3]])
+    direction = np.array([head_transform[0, 2], head_transform[2, 2]])
+    alpha = np.arctan2(direction[1], direction[0])
+    step = heading_radius / num_stages
+
+    def find_intermediate_heading(origin, radius, num_samples, alpha, stage_index):
+        best_point = origin + radius * np.array([np.cos(alpha), np.sin(alpha)])
+        min_overlap = float('inf')
+        best_alpha = alpha
+
+        for i in range(num_samples):
+            alpha_plus = alpha + np.pi * i / num_samples
+            alpha_minus = alpha - np.pi * i / num_samples
+            point_plus = origin + radius * np.array([np.cos(alpha_plus), np.sin(alpha_plus)])
+            point_minus = origin + radius * np.array([np.cos(alpha_minus), np.sin(alpha_minus)])
+
+            collision_free = True
+            for obj in object_buffer.buffer:
+                obj_world_pose = np.array([obj.world_pose[0], obj.world_pose[2]])
+                dist_to_obj_plus = np.linalg.norm(obj_world_pose - point_plus)
+                dist_to_obj_minus = np.linalg.norm(obj_world_pose - point_minus)
+
+                # Check collisions
+                overlap_plus = max(0, safety_radius + obj.radius - dist_to_obj_plus)
+                overlap_minus = max(0, safety_radius + obj.radius - dist_to_obj_minus)
+
+                if overlap_plus < min_overlap:
+                    min_overlap = overlap_plus
+                    best_point = point_plus
+                    best_alpha = alpha_plus if alpha_plus < np.pi else alpha_plus - np.pi
+
+                if overlap_minus < min_overlap:
+                    min_overlap = overlap_minus
+                    best_point = point_minus
+                    best_alpha = alpha_minus if alpha_plus > -np.pi else alpha_plus + np.pi
+
+                # Check for collision
+                if dist_to_obj_plus < safety_radius + obj.radius or dist_to_obj_minus < safety_radius + obj.radius:
+                    collision_free = False
+
+            # If collision-free, return immediately
+            if collision_free:
+                #print(f"Stage: {stage_index}, angle: {best_alpha}, sample num: {i}")
+                return (stage_index, best_point)
+
+        # If no collision-free heading is found, return the best_alpha (least overlap)
+        return (stage_index, best_point)
+
+    # Use ThreadPoolExecutor for parallel execution
+    best_points = [None] * num_stages
+    with ThreadPoolExecutor() as executor:
+        # Submit tasks for all stages
+        futures = [
+            executor.submit(find_intermediate_heading, origin, step * (i + 1), num_samples, alpha, i)
+            for i in range(num_stages)
+        ]
+
+        # Collect results as they complete
+        for future in as_completed(futures):
+            stage_index, best_point = future.result()
+            best_points[stage_index] = best_point
+
+    # Fit a quadratic function to the best points
+    direction = fit_quadratic_and_tangent(best_points)
+    alpha_new = np.arctan2(direction[1], direction[0])
+    heading_point_2d = origin + r * np.array([np.cos(alpha_new), np.sin(alpha_new)])
+    #print("New Heading: ",alpha_new, "Forward:",alpha)
+    best_heading = ((alpha_new - alpha + np.pi) % (2 * np.pi)) - np.pi
+
+    return best_heading, np.array([heading_point_2d[0], head_transform[2, 3], heading_point_2d[1]])
+

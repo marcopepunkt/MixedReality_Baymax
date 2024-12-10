@@ -1,6 +1,6 @@
 import os
 import time
-from typing import List
+from typing import List, Tuple
 import numpy as np
 import cv2
 import multiprocessing as mp
@@ -18,7 +18,6 @@ import utils
 
 # Import collision utilities
 import open3d as o3d
-
 
 # Settings
 CALIBRATION_PATH = "./calibration"
@@ -46,6 +45,12 @@ MIN_INLIERS = 200
 # Clustering settings
 MIN_POINTS = 30
 DBSCAN_EPS = 0.15
+
+# Heading settings
+HEADING_RADIUS = 1.5
+SAFETY_RADIUS = 0.5
+NUM_SAMPLES = 10
+NUM_STAGES = 3
 
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
@@ -104,6 +109,9 @@ class HoloLensDetection:
                                                                 hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT,
                                                                 calibration_lt.intrinsics[0, 0],calibration_lt.intrinsics[1, 1],
                                                                 calibration_lt.intrinsics[2, 0],calibration_lt.intrinsics[2, 1])
+        
+        # Obstacle buffer
+        self.obstacle_buffer = utils.Object_Buffer()
 
 
     def init_streams(self):
@@ -324,12 +332,12 @@ class HoloLensDetection:
 
         right = np.cross(up, -forward)
 
+        # up => y, forward => -z, right => x
         full_rotation = np.column_stack((right, up, -forward))
         roll_yaw_rot = utils.keep_rotations_xz(full_rotation)
 
         #rotation =  rotation_x * x_flip_rot
         #rotation = np.eye(3) * x_flip_rot
-        print("Head: ",head_pose.position)
         global_pose = np.eye(4)
         rectified_local_pose = np.eye(4)
         global_pose[:3, :3] = np.matmul(full_rotation, x_flip_rot)
@@ -338,7 +346,6 @@ class HoloLensDetection:
         global_pose[:3, 3] = head_pose.position
         rectified_local_pose[:3, 3] = [0,1.70,0]
         
-        # up => y, forward => -z, right => x
         return global_pose, rectified_local_pose
 
     def run_detection_cycle(self):
@@ -407,27 +414,25 @@ class HoloLensDetection:
 
     def run_collision_cycle(self):
 
-        current_time = time.time()
-
         # Get depth frame
         _, data_lt = self.sink_lt.get_most_recent_frame()
         if data_lt is None:
             print("No valid depth frame")
-            return False, []
+            return False, [], None, None
 
         # Get Spatial Input frame
         _, data_si = self.sink_si.get_nearest(data_lt.timestamp)
         if data_si is None:
             print("No valid SI frame")
-            return False, []
+            return False, [], None, None
         try:
             si = hl2ss.unpack_si(data_si.payload)
             if not si.is_valid_head_pose():
                 print("No valid SI frame")
-                return False, []
+                return False, [], None, None
         except:
             print("No valid SI frame")
-            return False, []
+            return False, [], None, None
         global_pose, _ = self.get_si_pose(si)
 
         depth = hl2ss_3dcv.rm_depth_undistort(data_lt.payload.depth, calibration_lt.undistort_map)
@@ -447,7 +452,6 @@ class HoloLensDetection:
                                                     head_height=1.70,
                                                     max_iterations=MAX_ITERATIONS,distance_threshold=DISTANCE_THRESH,
                                                     angle_threshold=ANGLE_THRESH,min_inliers=MIN_INLIERS)
-        bounding_boxes = []
         floor_detected = False
         non_floor_mask = np.ones(len(ds_pcd.points), dtype=bool)
         if len(floor_inliers) > 0:
@@ -459,13 +463,18 @@ class HoloLensDetection:
         # Apply DBSCAN clustering to non-floor points
         cluster_labels, filtered_colors = utils.dbscan_clustering(global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
 
+        # Compute Obstacles
         obstacles = []
         if cluster_labels.size > 0:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
+            current_time = time.time()
             # Bounding boxes in global frame
-            obstacles = utils.process_bounding_boxes(global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=global_pose[:3,3])
+            obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(global_pose[:3,3]),timestamp=current_time)
+       
+        # Compute heading    
+        heading_angle, heading_point = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
 
-        return floor_detected, obstacles
+        return floor_detected, obstacles, heading_angle, heading_point
                 
         
 
@@ -491,14 +500,16 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245")
+    detector = HoloLensDetection(IP_ADDRESS="172.20.10.14")
     detector.start()
     x = 0
     while True:
-        floor_detected , obstacles = detector.run_collision_cycle()
-        if len(obstacles) > 0:
+        floor_detected , obstacles, heading_angle, heading_point = detector.run_collision_cycle()
+        if obstacles:
             if floor_detected:
+                print("Number of Obstacles Registered:",len(obstacles))
                 print(obstacles[0].depth, obstacles[0].world_pose)
+                print("Heading: ", heading_angle," Heading point: ",heading_point)
             else:
                 print("Floor not detected, obstacles could be wrong", obstacles[0].depth, obstacles[0].world_pose)
         x +=1
