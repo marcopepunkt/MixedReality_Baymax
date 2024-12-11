@@ -9,14 +9,15 @@ import json
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Parse API KEY")
-parser.add_argument("--API_KEY", default="none", help="API Key for Gemini")
+parser.add_argument("--GEMINI_API_KEY", default="none", help="API Key for Gemini")
+parser.add_argument("--MAPS_API_KEY", default="none", help="API Key for Google Maps")
 parser.add_argument("--IP", default="169.254.236.128", help="hololense IP address")
 args_cli = parser.parse_args()
 
 flask_server = Flask(__name__)
 app = HoloLensDetection(IP_ADDRESS=args_cli.IP)
-gemini_client = GeminiClient(args_api_key=args_cli.API_KEY)
-google_maps_client = GoogleMapsClient(args_api_key=args_cli.API_KEY)
+gemini_client = GeminiClient(args_api_key=args_cli.GEMINI_API_KEY)
+google_maps_client = GoogleMapsClient(args_api_key=args_cli.MAPS_API_KEY)
 
 def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
     """Get scene description using Gemini"""
@@ -129,7 +130,7 @@ def main_directions():
         return jsonify({'error': 'No speech text provided'}), 400
 
     try:
-        print("Request from unity app arrived to the flask server!")
+        print("Google maps request from unity app arrived to the flask server!")
         main_instructions, stop_coordinates = google_maps_client.get_main_directions(address)
 
         if main_instructions is not None and stop_coordinates is not None:
@@ -199,7 +200,7 @@ if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
     app.start()  # TODO:Remove here and call init function
     try:
-        flask_server.run(host="0.0.0.0", port=6000, debug=False)
+        flask_server.run(host="0.0.0.0", port=5000, debug=False)
     finally:
         print("Stopping the Processor")
         # Cleanup the detector ------------------------------------------------ 

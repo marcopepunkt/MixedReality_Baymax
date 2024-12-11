@@ -24,7 +24,7 @@ CALIBRATION_PATH = "./calibration"
 PV_WIDTH = 640
 PV_HEIGHT = 360 # TODO: can decrease
 PV_FRAMERATE = 15 # TODO: can decrease
-BUFFER_LENGTH = 2 # was 5
+BUFFER_LENGTH = 3 # was 5. with 10 the lagging is worse, with 2 it sometimes receives a 2nd new frame, but afterwards doesn't
 MAX_SENSOR_DEPTH = 10
 VOICE_COMMANDS = ['detect']
 
@@ -337,21 +337,18 @@ class HoloLensDetection:
             import traceback
             traceback.print_exc()
 
-    def get_pv_frame(self, data_si):
-        # Get depth frame
-        _, data_depth = self.sink_lt.get_most_recent_frame()
-        if data_depth is None or not hl2ss.is_valid_pose(data_depth.pose):
-            print("No valid depth frame")
+    def get_pv_frame(self):
         # Get PV frame
-        _, data_pv = self.sink_pv.get_nearest(data_depth.timestamp)
+        _, data_pv = self.sink_pv.get_most_recent_frame()
         if data_pv is None or not hl2ss.is_valid_pose(data_pv.pose):
             print("No valid PV frame")
             return None
         # Get frame and check if it's valid
         frame = data_pv.payload.image
         self.latest_frame = frame
+        print(data_pv.timestamp)
         if frame is None:
-            # print("Invalid frame")
+            print("Invalid frame")
             return None
         return frame
 
