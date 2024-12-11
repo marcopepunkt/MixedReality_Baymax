@@ -95,10 +95,10 @@ class AudioFeedback:
             pass
 
 class GeminiClient:
-    def __init__(self):
+    def __init__(self,args_api_key):
         """Initialize Gemini client"""
         load_dotenv()
-        genai.configure(api_key="none")
+        genai.configure(api_key=args_api_key)
         self.model = genai.GenerativeModel('gemini-1.5-pro')
     
     def analyze_image(self, image_array, prompt: str) -> str:

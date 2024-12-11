@@ -6,105 +6,47 @@ from flask import jsonify
 
 from typing import List, Tuple
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import random
 from sklearn.cluster import DBSCAN
 import open3d as o3d
 
+# Obstacle Buffer settings
+MAX_RADIUS = 3
+MAX_OBJECTS = 10
+MAX_SIMILARITY_DISTANCE = 0.5
+MIN_COUNT = 3
+MAX_TIME = 5
 
+
+# Most of these are useless
 classes = [
     "background",
     "person",
-    "bicycle",
-    "car",
-    "motorcycle",
-    "airplane",
-    "bus",
-    "train",
-    "truck",
-    "boat",
-    "traffic light",
-    "fire hydrant",
-    "street sign",
-    "stop sign",
-    "parking meter",
-    "bench",
-    "bird",
-    "cat",
-    "dog",
-    "horse",
-    "sheep",
-    "cow",
-    "elephant",
-    "bear",
-    "zebra",
-    "giraffe",
-    "hat",
-    "backpack",
-    "umbrella",
-    "shoe",
-    "eye glasses",
-    "handbag",
-    "tie",
-    "suitcase",
-    "frisbee",
-    "skis",
-    "snowboard",
-    "sports ball",
-    "kite",
-    "baseball bat",
-    "baseball glove",
-    "skateboard",
-    "surfboard",
-    "tennis racket",
-    "bottle",
-    "plate",
-    "wine glass",
-    "cup",
-    "fork",
-    "knife",
-    "spoon",
-    "bowl",
-    "banana",
-    "apple",
-    "sandwich",
-    "orange",
-    "broccoli",
-    "carrot",
-    "hot dog",
-    "pizza",
-    "donut",
-    "cake",
-    "chair",
-    "couch",
-    "potted plant",
-    "bed",
-    "mirror",
-    "dining table",
-    "window",
-    "desk",
-    "toilet",
-    "door",
-    "tv",
-    "laptop",
-    "mouse",
-    "remote",
-    "keyboard",
-    "cell phone",
-    "microwave",
-    "oven",
-    "toaster",
-    "sink",
-    "refrigerator",
-    "blender",
-    "book",
-    "clock",
-    "vase",
-    "scissors",
-    "teddy bear",
-    "hair drier",
-    "toothbrush",
-    "hair brush",
+    # Vehicles
+    "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
+    # Signs and Street Objects
+    "traffic light", "fire hydrant", "street sign", "stop sign", "parking meter", "bench",
+    # Animals
+    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra", "giraffe",
+    # Accessories
+    "hat", "backpack", "umbrella", "shoe", "eye glasses", "handbag", "tie", "suitcase",
+    # Sports and Recreational
+    "frisbee", "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
+    "skateboard", "surfboard", "tennis racket",
+    # Kitchen Items
+    "bottle", "plate", "wine glass", "cup", "fork", "knife", "spoon", "bowl",
+    # Food
+    "banana", "apple", "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza",
+    "donut", "cake",
+    # Furniture and Household
+    "chair", "couch", "potted plant", "bed", "mirror", "dining table", "window", "desk",
+    "toilet", "door",
+    # Electronics
+    "tv", "laptop", "mouse", "remote", "keyboard", "cell phone", "microwave", "oven",
+    "toaster", "sink", "refrigerator", "blender",
+    # Miscellaneous
+    "book", "clock", "vase", "scissors", "teddy bear", "hair drier", "toothbrush", "hair brush"
 ]
 
 classes_with_priority = {
@@ -127,12 +69,15 @@ for cls in classes:
 
 class Object:
     def __init__(self, label, p_center: Tuple[int, int], depth: float, box: Tuple[int, int, float, float]):
+        
         self.label = label
         self.center = p_center  # (x, y)
         self.depth = depth
         self.box = box  # (x, y, w, h)
 
         self.world_pose = None
+        self.timestamp = 0.0
+        self.radius = 0.0
     
     def get_box_corners(self) -> List[Tuple[float, float]]:
         x, y, w, h = self.box
@@ -144,18 +89,70 @@ class Object:
         top_right = (x + w, y + h)
         
         return [bottom_left, bottom_right, top_right, top_left]
+    
+    def dist(self,pos):
 
-# def objects_to_json(objects: List[Object]) -> str:
-#     data = []
-#     for obj in objects:
-#         obj_data = {
-#             "label": int(obj.label),
-#             "center": obj.center,
-#             "depth": obj.depth,
-#             "world_pose": obj.world_pose,
-#         }
-#         data.append(obj_data)
-#     return json.dumps(data, indent=4)
+        if self.world_pose is not None and pos is not None:
+            return np.sqrt((self.world_pose[0]-pos[0])**2+(self.world_pose[1]-pos[1])**2+(self.world_pose[2]-pos[2])**2)
+        else:
+            return None
+        
+class Object_Buffer:
+
+    class Candidate:
+        def __init__(self,obj):
+            self.object = obj
+            self.count = 1
+ 
+    def __init__(self):
+        self.buffer: List[Object] = []
+        self.candidates: List[Object_Buffer.Candidate] = []
+
+    def update(self, objects, timestamp, head_pos):
+
+        # Process incoming objects
+        new_candidates = []
+        for obj_new in objects:
+            matched = False
+            for candidate in self.candidates:
+                # Calculate distance to existing candidate
+                d = candidate.object.dist(obj_new.world_pose)
+                if d is not None and d < MAX_SIMILARITY_DISTANCE:
+                    # Update the candidate's position and timestamp
+                    candidate.object.world_pose = (
+                        candidate.object.world_pose * candidate.count + obj_new.world_pose
+                    ) / (candidate.count + 1)
+                    candidate.count += 1
+                    candidate.object.timestamp = obj_new.timestamp
+                    candidate.object.depth = np.linalg.norm(candidate.object.world_pose - head_pos)
+                    matched = True
+                    break
+            if not matched:
+                # Add new object as a candidate
+                new_candidates.append(self.Candidate(obj_new))
+        
+        # Add new candidates to the list
+        self.candidates.extend(new_candidates)
+        
+        # Update candidates
+        candidates_ = []
+        filtered_candidates = []
+        for candidate in self.candidates:
+            if timestamp - candidate.object.timestamp < MAX_TIME:
+                dist = candidate.object.depth
+                candidates_.append((dist,candidate))
+                if dist is not None and dist < MAX_RADIUS:
+                    filtered_candidates.append((dist, candidate))
+
+        # Sort by distance
+        candidates_.sort(key=lambda x: x[0])
+        filtered_candidates = [candidate for (dist,candidate) in candidates_ if dist < MAX_RADIUS]
+        max_candidtates = min(len(filtered_candidates),MAX_OBJECTS*3)
+        self.candidates = filtered_candidates[:max_candidtates]
+        
+        # Update buffer with the MAX_OBJECTS closest candidates
+        max_objects = min(len(filtered_candidates),MAX_OBJECTS)
+        self.buffer = [candidate.object for candidate in filtered_candidates[:max_objects]]
 
 def objects_to_json(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
@@ -177,7 +174,7 @@ def objects_to_json(objects: List[Object]):
 
 def objects_to_json_collisions(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
-        return json.dumps([])
+        return json.dumps([])  #TODO: Problem here
 
     data = []
     for obj in objects:
@@ -196,12 +193,6 @@ def objects_to_json_collisions(objects: List[Object]):
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
     """
     Returns a list of center pixels for a given list of Object instances.
-
-    Parameters:
-        objects (List[Object]): List of Object instances.
-
-    Returns:
-        List[Tuple[int, int]]: List of center pixel coordinates (x, y).
     """
     return [obj.center for obj in objects]
 
@@ -294,12 +285,6 @@ def process_results(frame, results, thresh=0.6):
 def keep_rotations_xz(rotation_matrix):
     """
     Extract and keep only rotations around the X- and Z-axes from a 3D rotation matrix.
-
-    Args:
-    - rotation_matrix (numpy.ndarray): 3x3 rotation matrix.
-
-    Returns:
-    - numpy.ndarray: Modified 3x3 rotation matrix with only X- and Z-rotation components.
     """
     # Decompose the rotation matrix into Euler angles
     sy = np.sqrt(rotation_matrix[0, 0]**2 + rotation_matrix[1, 0]**2)
@@ -336,13 +321,6 @@ def keep_rotations_xz(rotation_matrix):
 def downsample_point_cloud(point_cloud, voxel_size):
     """
     Downsample the input point cloud using a voxel grid.
-    
-    Args:
-    - point_cloud (open3d.geometry.PointCloud): The input point cloud to downsample.
-    - voxel_size (float): The size of the voxel grid in the same units as the point cloud.
-
-    Returns:
-    - open3d.geometry.PointCloud: The downsampled point cloud.
     """
     downsampled_point_cloud = point_cloud.voxel_down_sample(voxel_size)
     return downsampled_point_cloud
@@ -435,17 +413,6 @@ def find_plane_ransac_o3d(point_cloud, head_height, max_iterations=100, distance
 def dbscan_clustering(point_cloud, colors, non_floor_mask, eps=0.1, min_samples=10):
     """
     Apply DBSCAN clustering to a point cloud.
-
-    Args:
-    - point_cloud (open3d.geometry.PointCloud): The input point cloud.
-    - colors (numpy.ndarray): Full color array for all points.
-    - non_floor_mask (numpy.ndarray): Boolean mask for non-floor points.
-    - eps (float): Maximum distance between two samples for them to be considered neighbors.
-    - min_samples (int): Minimum number of points to form a dense cluster.
-
-    Returns:
-    - labels (numpy.ndarray): Array of cluster labels for each point (-1 indicates noise).
-    - filtered_colors (numpy.ndarray): Updated colors for non-floor points after clustering.
     """
     # Convert Open3D point cloud to NumPy array
     points = np.asarray(point_cloud.points)
@@ -476,17 +443,6 @@ def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_m
     """
     Fit bounding boxes around clusters in the point cloud, filter by minimum number of points,
     and order by proximity to a reference point in the XZ plane.
-
-    Args:
-    - point_cloud (open3d.geometry.PointCloud): The input point cloud.
-    - labels (numpy.ndarray): Cluster labels for the points (-1 indicates noise).
-    - non_floor_mask (numpy.ndarray): Mask for non-floor points.
-    - min_points (int): Minimum number of points required to create a bounding box.
-    - reference_point (tuple): Reference point (x, z) for sorting by proximity.
-
-    Returns:
-    - bounding_boxes (list): List of bounding boxes for clusters meeting the threshold, ordered by proximity.
-    - centers_radii (list): List of (center_x, center_z, radius) tuples for each bounding box, ordered by proximity.
     """
     points = np.asarray(point_cloud.points)
     non_floor_points = points[non_floor_mask]
@@ -540,17 +496,37 @@ def fit_bounding_boxes_with_threshold_and_order(point_cloud, labels, non_floor_m
 
     return bounding_boxes, centers_radii
 
+def fit_quadratic_and_tangent(points):
+    # Extract first and last points
+    x1, y1 = points[0]
+    xn, yn = points[-1]
 
-def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=(0, 0, 0)):
+    # Create design matrix and solve for coefficients
+    A = np.array([[x1**2, x1, 1], [xn**2, xn, 1]])
+    b = np.array([y1, yn])
+    coeffs = np.linalg.lstsq(A, b, rcond=None)[0]  # [a, b, c]
+
+    a, b, c = coeffs
+
+    # Compute slope at the first point
+    slope = 2 * a * x1 + b
+
+    # Determine the sign of the x-component based on the direction of the curve
+    x_component = 1 if (xn > x1) else -1
+
+    # Construct tangent vector
+    tangent_vector = np.array([x_component, x_component * slope])  # [dx, dy]
+    tangent_vector /= np.linalg.norm(tangent_vector)  # Normalize for consistency if needed
+
+    return tangent_vector
+
+
+def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=np.array([0, 0, 0]), timestamp=0.0):
    
     global_points = np.asarray(global_pcd.points)
-    local_points = np.asarray(local_pcd.points)
-
     global_non_floor_points = global_points[non_floor_mask]
-    local_non_floor_points = local_points[non_floor_mask]
 
     # Data holders for bounding boxes and centers
-    depths = []
     global_centers = []
     bounding_boxes = []
 
@@ -562,7 +538,6 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
 
         # Extract points belonging to the current cluster
         global_cluster_points = global_non_floor_points[labels == label]
-        local_cluster_points = local_non_floor_points[labels == label]
 
         # Skip clusters with fewer points than the threshold
         if len(global_cluster_points) < min_points:
@@ -578,10 +553,7 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
 
         # Compute the center and depth (z-coordinate from local frame)
         bbox_points = np.asarray(aabb.get_box_points())
-        depth = local_cluster_points[:,2].mean(axis=0)  # Local frame center
         center_global = bbox_points.mean(axis=0)
-
-        depths.append(depth)
         global_centers.append(center_global)
 
     # Sort by distance to the local reference point
@@ -593,7 +565,7 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
     for idx in sorted_indices:
         center_global = global_centers[idx]
         aabb = bounding_boxes[idx]
-        depth = depths[idx]
+        depth = distances[idx]  # TODO:Not actually depth, it is distance, change name
         box_min = aabb.min_bound
         box_max = aabb.max_bound
         box = (box_min[0], box_min[2], box_max[0] - box_min[0], box_max[2] - box_min[2])  # (x, y, w, h)
@@ -604,8 +576,99 @@ def process_bounding_boxes(global_pcd, local_pcd, labels, non_floor_mask, min_po
             depth=depth,  # Use z from the local frame
             box=box,
         )
-        #obj.world_pose = (center_global[0], center_global[1] , center_global[2])
-        obj.world_pose = (center_global[2], -center_global[0], center_global[1])
+
+        # Unity global frame
+        obj.world_pose = np.array([center_global[0], center_global[1] , -center_global[2]])
+        obj.radius = np.sqrt(box[2]**2+box[3]**2)/2
+        obj.timestamp = timestamp
+        #obj.world_pose = (0, 0 , 0)
         objects.append(obj)
 
-    return objects
+    if floor_detected:
+        if objects:
+            object_buffer.update(objects,timestamp,global_pose)
+        return object_buffer.buffer
+    else:
+        if objects and depth < 1.0:
+            return [objects[0]] # Only give imediate collision risk
+        else:
+            return []
+
+def find_heading(object_buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages):
+    
+    num_samples = int(num_samples)
+    r = float(heading_radius)
+
+    origin = np.array([head_transform[0, 3], head_transform[2, 3]])
+    vec_dir = np.array([head_transform[0, 2], head_transform[2, 2]])
+    alpha = np.arctan2(vec_dir[1], vec_dir[0]) # Angle with respect to X-Axis in range [-pi,pi]
+    step = heading_radius / num_stages
+
+    def find_intermediate_heading(direction, origin, radius, num_samples, alpha, stage_index):
+
+        best_point = origin + radius * np.array([np.cos(alpha), np.sin(alpha)])
+        min_overlap = float('inf')
+        best_alpha = alpha
+        best_sample = 0
+
+        for i in range(num_samples):
+            alpha_prime = alpha + np.pi * i / num_samples * direction
+            point_prime = origin + radius * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
+            collision_free = True
+
+            for obj in object_buffer.buffer:
+                obj_world_pose = np.array([obj.world_pose[0], obj.world_pose[2]])
+                dist_to_obj= np.linalg.norm(obj_world_pose - point_prime)
+                # Check collisions
+                overlap = max(0, safety_radius + obj.radius - dist_to_obj)
+
+                if overlap < min_overlap:
+                    min_overlap = overlap
+                    best_point = point_prime
+                    best_alpha = alpha_prime if alpha_prime*direction < np.pi else alpha_prime - np.pi*direction
+                    best_sample = i
+
+                # Check for collision
+                if dist_to_obj < safety_radius + obj.radius:
+                    collision_free = False
+
+            # If collision-free, return immediately
+            if collision_free:
+                #print(f"Stage: {stage_index}, angle: {best_alpha}, sample num: {i}")
+                return (stage_index, best_point,best_sample)
+            
+        # If no collision-free heading is found, return the best_alpha (least overlap)
+        return (stage_index, best_point, best_sample)
+
+    # Use ThreadPoolExecutor for parallel execution
+    best_points = [None] * num_stages * 2
+    with ThreadPoolExecutor() as executor:
+        # Submit tasks for all stages
+        futures = [
+            executor.submit(find_intermediate_heading, direction, origin, step * (i + 1), num_samples, alpha, 2*i+int((1-direction)/2))
+            for i in range(num_stages)
+            for direction in [1., -1.]
+        ]
+        # Collect results as they complete (plus: even, minus: odd)
+        for future in as_completed(futures):
+            stage_index, best_point, best_sample = future.result()
+            best_points[stage_index] = (best_point , best_sample)
+
+    # Fit a quadratic function to the best points - direction must be maintained
+    direction = 1.0
+    tolerance = 1e-6
+    for _ in range(num_stages):
+        diff = best_points[0][1] - best_points[1][1]
+        if abs(diff) > tolerance: 
+            direction = diff / abs(diff) 
+            break
+    direction_points = [best_points[2 * i + int((1 - direction) / 2)][0] for i in range(num_stages)]
+    vec_dir = fit_quadratic_and_tangent(direction_points)
+
+    alpha_new = np.arctan2(vec_dir[1], vec_dir[0])
+    heading_point_2d = origin + r * np.array([np.cos(alpha_new), np.sin(alpha_new)])
+    #print("New Heading: ",alpha_new, "Forward:",alpha)
+    best_heading = ((alpha_new - alpha + np.pi) % (2 * np.pi)) - np.pi
+
+    return best_heading, np.array([heading_point_2d[0], head_transform[2, 3], heading_point_2d[1]])
+
