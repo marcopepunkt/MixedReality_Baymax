@@ -174,7 +174,7 @@ def objects_to_json(objects: List[Object]):
 
 def objects_to_json_collisions(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
-        return json.dumps([])  #TODO: Problem here
+        return jsonify({"results": "NoFloor Detected"}) #TODO: Problem here
 
     data = []
     for obj in objects:

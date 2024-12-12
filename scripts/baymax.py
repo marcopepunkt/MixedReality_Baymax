@@ -3,15 +3,15 @@ from flask import jsonify, Flask, request
 from utils import objects_to_json, classes, objects_to_json_collisions
 from scene_description import GeminiClient
 from google_maps import GoogleMapsClient
-
+import time
 import argparse
 import json
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Parse API KEY")
-parser.add_argument("--GEMINI_API_KEY", default="none", help="API Key for Gemini")
-parser.add_argument("--MAPS_API_KEY", default="none", help="API Key for Google Maps")
-parser.add_argument("--IP", default="169.254.236.128", help="hololense IP address")
+parser.add_argument("--GEMINI_API_KEY", default="AIzaSyD9yl2md73tLb9XkkC56m4T4KVH8yFmsVg", help="API Key for Gemini")
+parser.add_argument("--MAPS_API_KEY", default="AIzaSyALQcPwKRLlcEzmVIhbJ5954lstzc5XQBc", help="API Key for Google Maps")
+parser.add_argument("--IP", default="192.168.0.39", help="hololense IP address")
 args_cli = parser.parse_args()
 
 flask_server = Flask(__name__)
@@ -61,6 +61,9 @@ def trigger_event():
 
 @flask_server.route('/collision', methods=['GET'])
 def collision_event():
+    # make a short pause
+    time.sleep(0.1)
+    return("", 204)
     try:
          # Run detector and capture objects
         print("Request from unity app arrived to the flask server!")
@@ -71,29 +74,35 @@ def collision_event():
             return objects_to_json_collisions(objects)
         else:
             print("No floor")
-            return json.dumps([])
+            return ("", 204)
     except Exception as e:
         print("Detector Failed:", e)
-        return None
+        return ("", 204)
 
-@flask_server.route('/callibrate_detector', methods=['GET'])
+@flask_server.route('/calibrate_detector', methods=['GET'])
 def calibrate_detector():
-    
-    for _ in range(50): # Sometimes it takes a couple loops for the stream to set in
-        if app.init_head_pose():
-            print("Calibration Success")
-            return "Calibration Successful"
-    print("Calibration Failed, Try Again or Restart the app")
-    return "Calibration Failed"
-
+    print("Calibration Started")
+    try:
+        for _ in range(50): # Sometimes it takes a couple loops for the stream to set in
+            if app.init_head_pose():
+                print("Calibration Success")
+                return jsonify({"result" : "Calibration Success"})
+        
+        print("Could not initialize head pose")
+        return jsonify({"result" : "Head Pose Initialization Failed"})
+    except Exception as e:
+        print("Calibration Failed:", e)
+        return jsonify({"result" : str(e)})
 
 @flask_server.route('/initialize_streams', methods=['GET'])
 def init_streams():
-    app.start()
+    #app.start()
+    return jsonify({"result" : "Streams Initialized"})
 
 @flask_server.route('/stop_streams', methods=['GET'])
 def stop_streams():
-    app.cleanup()
+    #app.cleanup()
+    return jsonify({"result" : "Streams cleaed up"})
 
 @flask_server.route('/api', methods=['GET', 'POST'])
 def handle_speech():
@@ -105,7 +114,7 @@ def handle_speech():
     # Handle POST request as usual
     speech_text = request.form.get('speechText')
     if not speech_text:
-        return jsonify({'error': 'No speech text provided'}), 400
+        return jsonify({'response': 'No speech text provided'})
 
     try:
         print("Request from unity app arrived to the flask server!")
@@ -117,7 +126,7 @@ def handle_speech():
 
     except Exception as e:
         print("Detector Failed:", e)
-        return None
+        return jsonify({'response': 'No frame recieved'})
 
 @flask_server.route('/directions', methods=['GET', 'POST'])
 def main_directions():
@@ -127,7 +136,7 @@ def main_directions():
     # Handle POST request as usual
     address = request.form.get('speechText')
     if not address:
-        return jsonify({'error': 'No speech text provided'}), 400
+        return jsonify({'response': 'No speech text provided'}), 400
 
     try:
         print("Google maps request from unity app arrived to the flask server!")
@@ -189,11 +198,11 @@ def compare_gps():
             return jsonify(distance_to_target=distance_to_target)
         else:
             print("GPS comparison failed")
-            return None
+            return ("", 204)
 
     except Exception as e:
         print("GPS comparison failed:", e)
-        return None
+        return ("", 204)
 
 
 if __name__ == '__main__':
