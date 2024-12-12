@@ -47,23 +47,22 @@ def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
         print(f"Gemini description error: {str(e)}")
         return None
     
-@flask_server.route('/transform', methods=['GET'])
-def trigger_event():
-    try:
-         # Run detector and capture objects
-        print("Request from unity app arrived to the flask server!")
-        objects = app.run_detection_cycle()
-        print("Detector ran successfully")
-        return objects_to_json(objects)
-    except Exception as e:
-        print("Detector Failed:", e)
-        return None
+# @flask_server.route('/transform', methods=['GET'])
+# def trigger_event():
+#     try:
+#          # Run detector and capture objects
+#         print("Request from unity app arrived to the flask server!")
+#         objects = app.run_detection_cycle()
+#         print("Detector ran successfully")
+#         return objects_to_json(objects)
+#     except Exception as e:
+#         print("Detector Failed:", e)
+#         return None
 
 @flask_server.route('/collision', methods=['GET'])
 def collision_event():
     # make a short pause
-    time.sleep(0.1)
-    return("", 204)
+    
     try:
          # Run detector and capture objects
         print("Request from unity app arrived to the flask server!")
@@ -96,18 +95,17 @@ def calibrate_detector():
 
 @flask_server.route('/initialize_streams', methods=['GET'])
 def init_streams():
-    #app.start()
+    app.start()
     return jsonify({"result" : "Streams Initialized"})
 
 @flask_server.route('/stop_streams', methods=['GET'])
 def stop_streams():
-    #app.cleanup()
+    app.cleanup()
     return jsonify({"result" : "Streams cleaed up"})
 
 @flask_server.route('/api', methods=['GET', 'POST'])
 def handle_speech():
     # TODO: put app.start() and app.cleanup() in here, so the stream starts new everytime
-
     if request.method == 'GET':
         return "API is working! Send a POST request to use this endpoint."
 
