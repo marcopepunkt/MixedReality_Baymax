@@ -13,7 +13,8 @@ import open3d as o3d
 
 # Obstacle Buffer settings
 MAX_RADIUS = 3
-MAX_OBJECTS = 10
+MAX_OBJECTS = 5
+MAX_CANDIDATE_OBJECTS = 30
 MAX_SIMILARITY_DISTANCE = 0.5
 MIN_COUNT = 3
 MAX_TIME = 5
@@ -147,7 +148,7 @@ class Object_Buffer:
         # Sort by distance
         candidates_.sort(key=lambda x: x[0])
         filtered_candidates = [candidate for (dist,candidate) in candidates_ if dist < MAX_RADIUS]
-        max_candidtates = min(len(filtered_candidates),MAX_OBJECTS*3)
+        max_candidtates = min(len(filtered_candidates),MAX_CANDIDATE_OBJECTS)
         self.candidates = filtered_candidates[:max_candidtates]
         
         # Update buffer with the MAX_OBJECTS closest candidates
@@ -568,7 +569,7 @@ def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd
         depth = distances[idx]  # TODO:Not actually depth, it is distance, change name
         box_min = aabb.min_bound
         box_max = aabb.max_bound
-        box = (box_min[0], box_min[2], box_max[0] - box_min[0], box_max[2] - box_min[2])  # (x, y, w, h)
+        box = (box_min[0], box_min[2], box_max[0] - box_min[0], box_max[2] - box_min[2])  # (x, z, w, h)
 
         obj = Object(
             label="obstacle",
@@ -577,8 +578,7 @@ def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd
             box=box,
         )
 
-        # Unity global frame
-        obj.world_pose = np.array([center_global[0], center_global[1] , -center_global[2]])
+        obj.world_pose = np.array([center_global[0], center_global[1] , center_global[2]])
         obj.radius = np.sqrt(box[2]**2+box[3]**2)/2
         obj.timestamp = timestamp
         #obj.world_pose = (0, 0 , 0)
@@ -612,25 +612,30 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
         best_sample = 0
 
         for i in range(num_samples):
+
             alpha_prime = alpha + np.pi * i / num_samples * direction
             point_prime = origin + radius * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
             collision_free = True
 
+            overlap = 0
             for obj in object_buffer.buffer:
-                obj_world_pose = np.array([obj.world_pose[0], obj.world_pose[2]])
-                dist_to_obj= np.linalg.norm(obj_world_pose - point_prime)
+
+                box_x, box_z, box_w, box_h = obj.box
+                closest_x = max(box_x, min(point_prime[0], box_x + box_w))
+                closest_z = max(box_z, min(point_prime[1], box_z + box_h))
+                closest_point = np.array([closest_x, closest_z])
+                dist_to_obj = np.linalg.norm(closest_point - point_prime)
+
                 # Check collisions
-                overlap = max(0, safety_radius + obj.radius - dist_to_obj)
-
-                if overlap < min_overlap:
-                    min_overlap = overlap
-                    best_point = point_prime
-                    best_alpha = alpha_prime if alpha_prime*direction < np.pi else alpha_prime - np.pi*direction
-                    best_sample = i
-
-                # Check for collision
-                if dist_to_obj < safety_radius + obj.radius:
+                overlap += max(0, safety_radius - dist_to_obj)  # Calculate overlap based on circle radius
+                if dist_to_obj < safety_radius:
                     collision_free = False
+
+            if overlap < min_overlap:
+                min_overlap = overlap
+                best_point = point_prime
+                best_alpha = alpha_prime if alpha_prime*direction < np.pi else alpha_prime - np.pi*direction
+                best_sample = i
 
             # If collision-free, return immediately
             if collision_free:
@@ -657,12 +662,18 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
     # Fit a quadratic function to the best points - direction must be maintained
     direction = 1.0
     tolerance = 1e-6
-    for _ in range(num_stages):
-        diff = best_points[0][1] - best_points[1][1]
-        if abs(diff) > tolerance: 
-            direction = diff / abs(diff) 
-            break
+    diff = 0.0
+    i = 0
+    while diff < tolerance:
+        diff = best_points[i][1] - best_points[i+1][1]
+        i +=1
+        if i == num_stages: break
+    if abs(diff) > tolerance: 
+        direction = diff / abs(diff) 
+
     direction_points = [best_points[2 * i + int((1 - direction) / 2)][0] for i in range(num_stages)]
+    direction_points = [origin] + direction_points
+
     vec_dir = fit_quadratic_and_tangent(direction_points)
 
     alpha_new = np.arctan2(vec_dir[1], vec_dir[0])

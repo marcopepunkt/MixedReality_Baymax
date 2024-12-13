@@ -43,8 +43,8 @@ ANGLE_THRESH = 30.0
 MIN_INLIERS = 200
 
 # Clustering settings
-MIN_POINTS = 30
-DBSCAN_EPS = 0.15
+MIN_POINTS = 50
+DBSCAN_EPS = 0.25
 
 # Heading settings
 HEADING_RADIUS = 1.5
@@ -64,7 +64,7 @@ last_detection_time = 0
 DETECTION_COOLDOWN = 2
 
 class HoloLensDetection:
-    def __init__(self, IP_ADDRESS):
+    def __init__(self, IP_ADDRESS, visuals= False):
         self.HOST = IP_ADDRESS
 
         self.producer = None
@@ -79,6 +79,9 @@ class HoloLensDetection:
         self.head_calibrated = False
         self.head_inverse_matrix = None
         self.last_detection_time = time.time()
+        
+        # Enable pointcloud visualization
+        self.visuals = visuals
 
         # Initialize OpenVINO
         self.core = ov.Core()
@@ -161,6 +164,17 @@ class HoloLensDetection:
             self.sink_si.get_attach_response()
             print("Streams initialized")
 
+            if self.visuals:
+                # Create Open3D visualizer ------------------------------------------------
+                self.o3d_lt_intrinsics = o3d.camera.PinholeCameraIntrinsic(hl2ss.Parameters_RM_DEPTH_LONGTHROW.WIDTH, hl2ss.Parameters_RM_DEPTH_LONGTHROW.HEIGHT, calibration_lt.intrinsics[0, 0], calibration_lt.intrinsics[1, 1], calibration_lt.intrinsics[2, 0], calibration_lt.intrinsics[2, 1])
+                self.vis = o3d.visualization.Visualizer()
+                self.vis.create_window()
+                self.pcd = o3d.geometry.PointCloud()
+                self.heading_sphere = o3d.geometry.TriangleMesh.create_sphere(radius=0.1)
+                self.first_pcd = True
+                self.first_heading = True
+
+
         except Exception as e:
             print(f"Error initializing streams: {str(e)}")
             raise
@@ -197,8 +211,6 @@ class HoloLensDetection:
         self.head_calibrated = True
 
         return True
-
-
 
     def draw_detection_results(self, frame, boxes, objects):
         """Draw detection results on the frame"""
@@ -371,15 +383,16 @@ class HoloLensDetection:
         global_pose[:3, :3] = full_rotation @ x_flip_rot
         global_pose[:3, 3] = head_pose.position
 
-        unity_global_pose = global_pose
-        unity_global_pose[:3,2] *= -1
-        unity_global_pose[:3,3] *= -1  # Z-axis is inverted 
+        # Flip the z-axis in the unity frame
+        z_flip = np.eye(4)
+        z_flip[2,2] = -1
+        unity_global_pose = z_flip @ global_pose
 
         calibrated_global_pose = global_pose
         if self.head_calibrated:
-            calibrated_global_pose = self.head_inverse_matrix @ global_pose
+            calibrated_global_pose = self.head_inverse_matrix @ unity_global_pose
         
-        return global_pose, unity_global_pose, calibrated_global_pose
+        return unity_global_pose, calibrated_global_pose
 
     def run_detection_cycle(self):
         print("Starting object detection!")
@@ -469,7 +482,7 @@ class HoloLensDetection:
         
         # This is important, there are three transformations:
 
-        global_pose, unity_global_pose, calibrated_global_pose = self.get_si_pose(si)
+        unity_global_pose, calibrated_global_pose = self.get_si_pose(si)
 
         #   - global_pose: transformation from local to hololense global frame (initiated when the app is launched, but not super sure when)
         #   - unity_global_pose: Same as global pose, but Z-Axis is inverted to align with Unity frame
@@ -487,17 +500,18 @@ class HoloLensDetection:
         tmp_pcd = o3d.geometry.PointCloud.create_from_depth_image(depth_image, intrinsic=self.o3d_lt_intrinsics, depth_scale=1)
         ds_pcd = utils.downsample_point_cloud(tmp_pcd,voxel_size=VOXEL_SIZE)
 
-        global_pcd = ds_pcd.__copy__()
+        unity_global_pcd = ds_pcd.__copy__()
         calibrated_global_pcd = ds_pcd.__copy__()
-        global_pcd.transform(global_pose)
+
+        unity_global_pcd.transform(unity_global_pose)
         calibrated_global_pcd.transform(calibrated_global_pose)
 
         # For debug
-        colors = np.full((len(calibrated_global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
+        colors = np.full((len(unity_global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
 
         # Find floor inliers using RANSAC - Using Calibrated Data
-        floor_inliers = utils.find_plane_ransac_o3d(calibrated_global_pcd,
-                                                    head_height=1.70,  #TODO: Check this, I don't think I need it, could be causing the table problems
+        floor_inliers = utils.find_plane_ransac_o3d(unity_global_pcd,
+                                                    head_height=0.0,  #TODO: Check this, I don't think I need it, could be causing the table problems
                                                     max_iterations=MAX_ITERATIONS,distance_threshold=DISTANCE_THRESH,
                                                     angle_threshold=ANGLE_THRESH,min_inliers=MIN_INLIERS)
         floor_detected = False
@@ -509,7 +523,7 @@ class HoloLensDetection:
         non_floor_mask[floor_inliers] = False
 
         # Apply DBSCAN clustering to non-floor points - Using Calibrated Data
-        cluster_labels, filtered_colors = utils.dbscan_clustering(calibrated_global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
+        cluster_labels, filtered_colors = utils.dbscan_clustering(unity_global_pcd, colors, non_floor_mask, eps=DBSCAN_EPS)
 
         # Compute Obstacles
         obstacles = []
@@ -517,10 +531,44 @@ class HoloLensDetection:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             current_time = time.time()
             # Bounding boxes in global frame - Using ORIGINAL global pose
-            obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(global_pose[:3,3]),timestamp=current_time)
-       
+            obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,unity_global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(unity_global_pose[:3,3]),timestamp=current_time)
+        
         # Compute heading - Using Unity Frame  
         heading_angle, heading_point = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
+
+        # Update rendering if visuals are enabled
+        if self.visuals:
+            highlighted_pcd = o3d.geometry.PointCloud(unity_global_pcd)
+            z_flip = np.eye(4)
+            z_flip[2,2] = -1
+            highlighted_pcd.transform(z_flip)
+
+            highlighted_pcd.colors = o3d.utility.Vector3dVector(colors)
+            self.pcd.points = highlighted_pcd.points
+            self.pcd.colors = highlighted_pcd.colors
+
+            heading_vis_point = heading_point
+            heading_vis_point[2] *= -1
+            self.heading_sphere.translate(heading_vis_point)  # Move the sphere to the heading_point
+            self.heading_sphere.paint_uniform_color([1, 0, 0])  # Paint the sphere red for visibility
+
+            if self.first_heading:
+                self.vis.add_geometry(self.heading_sphere)
+                self.heading_added = True
+            else:
+                self.vis.update_geometry(self.heading_sphere)
+
+            if self.first_pcd:
+                self.vis.add_geometry(self.pcd)
+                self.first_pcd = False
+            else:
+                self.vis.update_geometry(self.pcd)
+            
+            self.heading_sphere.translate(-heading_vis_point)  # Move the sphere to the heading_point
+
+            self.vis.poll_events()
+            self.vis.update_renderer()
+
 
         return floor_detected, obstacles, heading_angle, heading_point
                 
@@ -546,21 +594,22 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245")
+    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245",visuals=True)
     detector.start()
 
-    print("Calibrating...")
-    for _ in range(1000):
-        if detector.init_head_pose():
-            break
-    time.sleep(2.5)
+    # print("Calibrating...")
+    # for _ in range(1000):
+    #     if detector.init_head_pose():
+    #         break
+    # time.sleep(2.5)
+
     x = 0
     while True:
         floor_detected , obstacles, heading_angle, heading_point = detector.run_collision_cycle()
         if obstacles:
             if floor_detected:
                 print("Number of Obstacles Registered:",len(obstacles))
-                print(obstacles[0].depth, obstacles[0].world_pose)
+                print("Distance: ",obstacles[0].depth," Pose:", obstacles[0].world_pose, " Radius: ",obstacles[0].radius)
                 print("Heading: ", heading_angle," Heading point: ",heading_point)
             else:
                 print("Floor not detected, obstacles could be wrong", obstacles[0].depth, obstacles[0].world_pose)

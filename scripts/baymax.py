@@ -11,13 +11,38 @@ import json
 parser = argparse.ArgumentParser(description="Parse API KEY")
 parser.add_argument("--GEMINI_API_KEY", default="AIzaSyD9yl2md73tLb9XkkC56m4T4KVH8yFmsVg", help="API Key for Gemini")
 parser.add_argument("--MAPS_API_KEY", default="AIzaSyALQcPwKRLlcEzmVIhbJ5954lstzc5XQBc", help="API Key for Google Maps")
-parser.add_argument("--IP", default="192.168.0.39", help="hololense IP address")
+parser.add_argument("--IP", default="192.168.1.245", help="hololense IP address")
 args_cli = parser.parse_args()
 
 flask_server = Flask(__name__)
 app = HoloLensDetection(IP_ADDRESS=args_cli.IP)
 gemini_client = GeminiClient(args_api_key=args_cli.GEMINI_API_KEY)
 google_maps_client = GoogleMapsClient(args_api_key=args_cli.MAPS_API_KEY)
+
+@flask_server.route('/initialize_streams', methods=['GET'])
+def init_streams():
+    app.start()
+    return jsonify({"result" : "Streams Initialized"})
+
+@flask_server.route('/stop_streams', methods=['GET'])
+def stop_streams():
+    app.cleanup()
+    return jsonify({"result" : "Streams cleaed up"})
+
+@flask_server.route('/calibrate_detector', methods=['GET'])
+def calibrate_detector():
+    print("Calibration Started")
+    try:
+        for _ in range(50): # Sometimes it takes a couple loops for the stream to set in
+            if app.init_head_pose():
+                print("Calibration Success")
+                return jsonify({"result" : "Calibration Success"})
+        
+        print("Could not initialize head pose")
+        return jsonify({"result" : "Head Pose Initialization Failed"})
+    except Exception as e:
+        print("Calibration Failed:", e)
+        return jsonify({"result" : str(e)})
 
 def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
     """Get scene description using Gemini"""
@@ -47,19 +72,7 @@ def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
         print(f"Gemini description error: {str(e)}")
         return None
     
-# @flask_server.route('/transform', methods=['GET'])
-# def trigger_event():
-#     try:
-#          # Run detector and capture objects
-#         print("Request from unity app arrived to the flask server!")
-#         objects = app.run_detection_cycle()
-#         print("Detector ran successfully")
-#         return objects_to_json(objects)
-#     except Exception as e:
-#         print("Detector Failed:", e)
-#         return None
-
-@flask_server.route('/transform', methods=['GET'])
+@flask_server.route('/collision', methods=['GET'])
 def collision_event():
     # make a short pause
     
@@ -78,31 +91,6 @@ def collision_event():
         print("Detector Failed:", e)
         return ("", 204)
 
-@flask_server.route('/calibrate_detector', methods=['GET'])
-def calibrate_detector():
-    print("Calibration Started")
-    try:
-        for _ in range(50): # Sometimes it takes a couple loops for the stream to set in
-            if app.init_head_pose():
-                print("Calibration Success")
-                return jsonify({"result" : "Calibration Success"})
-        
-        print("Could not initialize head pose")
-        return jsonify({"result" : "Head Pose Initialization Failed"})
-    except Exception as e:
-        print("Calibration Failed:", e)
-        return jsonify({"result" : str(e)})
-
-@flask_server.route('/initialize_streams', methods=['GET'])
-def init_streams():
-    app.start()
-    return jsonify({"result" : "Streams Initialized"})
-
-@flask_server.route('/stop_streams', methods=['GET'])
-def stop_streams():
-    app.cleanup()
-    return jsonify({"result" : "Streams cleaed up"})
-
 @flask_server.route('/api', methods=['GET', 'POST'])
 def handle_speech():
     # TODO: put app.start() and app.cleanup() in here, so the stream starts new everytime
@@ -116,10 +104,12 @@ def handle_speech():
 
     try:
         print("Request from unity app arrived to the flask server!")
+        app.start()
         objects = app.run_detection_cycle()
         gemini_description = None
         if app.latest_frame is not None:
             gemini_description = get_scene_description(app.latest_frame, objects, speech_text)
+        app.cleanup()
         return jsonify({'response': gemini_description})
 
     except Exception as e:
@@ -205,7 +195,7 @@ def compare_gps():
 
 if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
-    app.start()  # TODO:Remove here and call init function
+    #app.start()  # TODO:Remove here and call init function
     try:
         flask_server.run(host="0.0.0.0", port=6000, debug=False)
     finally:
