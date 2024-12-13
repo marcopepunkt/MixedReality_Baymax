@@ -59,14 +59,14 @@ def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
 #         print("Detector Failed:", e)
 #         return None
 
-@flask_server.route('/collision', methods=['GET'])
+@flask_server.route('/transform', methods=['GET'])
 def collision_event():
     # make a short pause
     
     try:
          # Run detector and capture objects
         print("Request from unity app arrived to the flask server!")
-        floor_detected, objects = app.run_collision_cycle()
+        floor_detected, objects, _, _ = app.run_collision_cycle()
         print("Detector ran successfully")
         if floor_detected:
             print("floor")
@@ -207,7 +207,7 @@ if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
     app.start()  # TODO:Remove here and call init function
     try:
-        flask_server.run(host="0.0.0.0", port=5000, debug=False)
+        flask_server.run(host="0.0.0.0", port=6000, debug=False)
     finally:
         print("Stopping the Processor")
         # Cleanup the detector ------------------------------------------------ 

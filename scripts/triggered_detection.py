@@ -175,7 +175,7 @@ class HoloLensDetection:
         try:
             si = hl2ss.unpack_si(data_si.payload)
             if not si.is_valid_head_pose():
-                print("No valid SI frame")
+                print("No valid head pose")
                 return False, [], None, None
         except:
             print("No valid SI frame")
@@ -194,8 +194,8 @@ class HoloLensDetection:
 
         # Apply this matrix to all transformations to get pose relative to initial state
         self.head_inverse_matrix = np.linalg.inv(global_pose)
+        self.head_calibrated = True
 
-        self.calibrated = True
         return True
 
 
@@ -376,7 +376,7 @@ class HoloLensDetection:
         unity_global_pose[:3,3] *= -1  # Z-axis is inverted 
 
         calibrated_global_pose = global_pose
-        if self.calibrated:
+        if self.head_calibrated:
             calibrated_global_pose = self.head_inverse_matrix @ global_pose
         
         return global_pose, unity_global_pose, calibrated_global_pose
@@ -548,6 +548,12 @@ class HoloLensDetection:
 if __name__ == "__main__":
     detector = HoloLensDetection(IP_ADDRESS="192.168.1.245")
     detector.start()
+
+    print("Calibrating...")
+    for _ in range(1000):
+        if detector.init_head_pose():
+            break
+    time.sleep(2.5)
     x = 0
     while True:
         floor_detected , obstacles, heading_angle, heading_point = detector.run_collision_cycle()
