@@ -21,7 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 # Settings --------------------------------------------------------------------
 
 # HoloLens address
-host = '169.254.236.128'
+host = '192.168.1.245'
 
 # Calibration path (must exist but can be empty)
 calibration_path = 'calibration'
@@ -606,7 +606,7 @@ if __name__ == '__main__':
             rectified_local_pose[:3, :3] = roll_yaw_rot @ x_flip_rot
 
             global_pose[:3, 3] = head_pose.position
-            rectified_local_pose[:3, 3] = [0,1.70,0]
+            rectified_local_pose[:3, 3] = [0,0,0]
 
             #print(pose)
             #print(f'Head pose: Position={head_pose.position} Forward={head_pose.forward} Up={head_pose.up}')
