@@ -90,6 +90,25 @@ def collision_event():
     except Exception as e:
         print("Detector Failed:", e)
         return ("", 204)
+    
+@flask_server.route('/heading', methods=['GET'])
+def collision_event():
+    # make a short pause
+    
+    try:
+         # Run detector and capture objects
+        print("Request from unity app arrived to the flask server!")
+        floor_detected, objects , _ , heading_obj = app.run_collision_cycle()
+        print("Detector ran successfully")
+        if floor_detected:
+            print("floor")
+            return objects_to_json_collisions(heading_obj + objects)
+        else:
+            print("No floor")
+            return ("", 204)
+    except Exception as e:
+        print("Detector Failed:", e)
+        return ("", 204)
 
 @flask_server.route('/api', methods=['GET', 'POST'])
 def handle_speech():

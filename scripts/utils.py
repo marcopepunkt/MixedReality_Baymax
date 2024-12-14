@@ -681,5 +681,13 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
     #print("New Heading: ",alpha_new, "Forward:",alpha)
     best_heading = ((alpha_new - alpha + np.pi) % (2 * np.pi)) - np.pi
 
-    return best_heading, np.array([heading_point_2d[0], head_transform[2, 3], heading_point_2d[1]])
+    heading_obj = Object(
+            label="heading",
+            p_center= None,
+            depth=r,  # Use z from the local frame
+            box=None,
+        )
+    heading_obj.world_pose = np.array([heading_point_2d[0], head_transform[2, 3], heading_point_2d[1]])
+
+    return best_heading, [heading_obj]
 

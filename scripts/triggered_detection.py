@@ -534,7 +534,7 @@ class HoloLensDetection:
             obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,unity_global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(unity_global_pose[:3,3]),timestamp=current_time)
         
         # Compute heading - Using Unity Frame  
-        heading_angle, heading_point = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
+        heading_angle, heading_obj = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
 
         # Update rendering if visuals are enabled
         if self.visuals:
@@ -547,7 +547,7 @@ class HoloLensDetection:
             self.pcd.points = highlighted_pcd.points
             self.pcd.colors = highlighted_pcd.colors
 
-            heading_vis_point = heading_point
+            heading_vis_point = heading_obj[0].world_pose
             heading_vis_point[2] *= -1
             self.heading_sphere.translate(heading_vis_point)  # Move the sphere to the heading_point
             self.heading_sphere.paint_uniform_color([1, 0, 0])  # Paint the sphere red for visibility
@@ -570,7 +570,7 @@ class HoloLensDetection:
             self.vis.update_renderer()
 
 
-        return floor_detected, obstacles, heading_angle, heading_point
+        return floor_detected, obstacles, heading_angle, heading_obj
                 
     def cleanup(self):
         """Cleanup resources"""
@@ -605,12 +605,12 @@ if __name__ == "__main__":
 
     x = 0
     while True:
-        floor_detected , obstacles, heading_angle, heading_point = detector.run_collision_cycle()
+        floor_detected , obstacles, heading_angle, heading_obj = detector.run_collision_cycle()
         if obstacles:
             if floor_detected:
                 print("Number of Obstacles Registered:",len(obstacles))
                 print("Distance: ",obstacles[0].depth," Pose:", obstacles[0].world_pose, " Radius: ",obstacles[0].radius)
-                print("Heading: ", heading_angle," Heading point: ",heading_point)
+                print("Heading: ", heading_angle," Heading point: ",heading_obj[0])
             else:
                 print("Floor not detected, obstacles could be wrong", obstacles[0].depth, obstacles[0].world_pose)
         x +=1
