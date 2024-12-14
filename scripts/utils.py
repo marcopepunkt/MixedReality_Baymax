@@ -13,11 +13,11 @@ import open3d as o3d
 
 # Obstacle Buffer settings
 MAX_RADIUS = 3
-MAX_OBJECTS = 5
-MAX_CANDIDATE_OBJECTS = 30
-MAX_SIMILARITY_DISTANCE = 0.5
-MIN_COUNT = 3
-MAX_TIME = 5
+MAX_OBJECTS = 20
+MAX_CANDIDATE_OBJECTS = 40
+MAX_SIMILARITY_DISTANCE = 0.25
+MIN_COUNT = 5
+MAX_TIME = 1  # seconds
 
 
 # Most of these are useless
@@ -94,7 +94,8 @@ class Object:
     def dist(self,pos):
 
         if self.world_pose is not None and pos is not None:
-            return np.sqrt((self.world_pose[0]-pos[0])**2+(self.world_pose[1]-pos[1])**2+(self.world_pose[2]-pos[2])**2)
+            return np.sqrt((self.world_pose[0]-pos[0])**2+(self.world_pose[2]-pos[2])**2) 
+            #return np.sqrt((self.world_pose[0]-pos[0])**2+(self.world_pose[1]-pos[1])**2+(self.world_pose[2]-pos[2])**2)
         else:
             return None
         
@@ -175,7 +176,7 @@ def objects_to_json(objects: List[Object]):
 
 def objects_to_json_collisions(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
-        return jsonify({"results": "NoFloor Detected"}) #TODO: Problem here
+        return {} #TODO: Problem here
 
     data = []
     for obj in objects:
@@ -189,7 +190,7 @@ def objects_to_json_collisions(objects: List[Object]):
         }
         data.append(obj_data)
 
-    return jsonify(data)
+    return data
 
 def get_centers(objects: List[Object]) -> List[Tuple[int, int]]:
     """
@@ -522,7 +523,7 @@ def fit_quadratic_and_tangent(points):
     return tangent_vector
 
 
-def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd, local_pcd, labels, non_floor_mask, min_points=50, global_pose=np.array([0, 0, 0]), timestamp=0.0):
+def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd,labels, non_floor_mask, min_points=50, global_pose=np.array([0, 0, 0]), timestamp=0.0):
    
     global_points = np.asarray(global_pcd.points)
     global_non_floor_points = global_points[non_floor_mask]
@@ -578,7 +579,8 @@ def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd
             box=box,
         )
 
-        obj.world_pose = np.array([center_global[0], center_global[1] , center_global[2]])
+        #obj.world_pose = np.array([center_global[0], center_global[1] , center_global[2]])
+        obj.world_pose = np.array([center_global[0], global_pose[1]-1.6 , center_global[2]])
         obj.radius = np.sqrt(box[2]**2+box[3]**2)/2
         obj.timestamp = timestamp
         #obj.world_pose = (0, 0 , 0)
@@ -589,10 +591,107 @@ def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd
             object_buffer.update(objects,timestamp,global_pose)
         return object_buffer.buffer
     else:
-        if objects and depth < 1.0:
+        if objects and depth < 2.0:
             return [objects[0]] # Only give imediate collision risk
         else:
             return []
+
+# def find_heading(object_buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages):
+    
+#     num_samples = int(num_samples)
+#     r = float(heading_radius)
+
+#     origin = np.array([head_transform[0, 3], head_transform[2, 3]])
+#     vec_dir = np.array([head_transform[0, 2], head_transform[2, 2]])
+#     alpha = np.arctan2(vec_dir[1], vec_dir[0]) # Angle with respect to X-Axis in range [-pi,pi]
+#     step = heading_radius / num_stages
+
+    # def find_intermediate_heading(direction, origin, radius, num_samples, alpha, stage_index):
+
+    #     best_point = origin + radius * np.array([np.cos(alpha), np.sin(alpha)])
+    #     min_overlap = float('inf')
+    #     best_alpha = alpha
+    #     best_sample = 0
+
+    #     for i in range(num_samples):
+
+    #         alpha_prime = alpha + np.pi * i / num_samples * direction
+    #         point_prime = origin + radius * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
+    #         collision_free = True
+
+    #         overlap = 0
+    #         for obj in object_buffer.buffer:
+
+    #             box_x, box_z, box_w, box_h = obj.box
+    #             closest_x = max(box_x, min(point_prime[0], box_x + box_w))
+    #             closest_z = max(box_z, min(point_prime[1], box_z + box_h))
+    #             closest_point = np.array([closest_x, closest_z])
+    #             dist_to_obj = np.linalg.norm(closest_point - point_prime)
+
+    #             # Check collisions
+    #             overlap += max(0, safety_radius - dist_to_obj)  # Calculate overlap based on circle radius
+    #             if dist_to_obj < safety_radius:
+    #                 collision_free = False
+
+    #         if overlap < min_overlap:
+    #             min_overlap = overlap
+    #             best_point = point_prime
+    #             best_alpha = alpha_prime if alpha_prime*direction < np.pi else alpha_prime - np.pi*direction
+    #             best_sample = i
+
+    #         # If collision-free, return immediately
+    #         if collision_free:
+    #             #print(f"Stage: {stage_index}, angle: {best_alpha}, sample num: {i}")
+    #             return (stage_index, best_point,best_sample)
+            
+    #     # If no collision-free heading is found, return the best_alpha (least overlap)
+    #     return (stage_index, best_point, best_sample)
+
+    # # Use ThreadPoolExecutor for parallel execution
+    # best_points = [None] * num_stages * 2
+    # with ThreadPoolExecutor() as executor:
+    #     # Submit tasks for all stages
+    #     futures = [
+    #         executor.submit(find_intermediate_heading, direction, origin, step * (i + 1), num_samples, alpha, 2*i+int((1-direction)/2))
+    #         for i in range(num_stages)
+    #         for direction in [1., -1.]
+    #     ]
+    #     # Collect results as they complete (plus: even, minus: odd)
+    #     for future in as_completed(futures):
+    #         stage_index, best_point, best_sample = future.result()
+    #         best_points[stage_index] = (best_point , best_sample)
+
+    # # Fit a quadratic function to the best points - direction must be maintained
+    # direction = 1.0
+    # tolerance = 1e-6
+    # diff = 0.0
+    # i = 0
+    # while diff < tolerance:
+    #     diff = best_points[i][1] - best_points[i+1][1]
+    #     i +=1
+    #     if i == num_stages: break
+    # if abs(diff) > tolerance: 
+    #     direction = diff / abs(diff) 
+
+    # direction_points = [best_points[2 * i + int((1 - direction) / 2)][0] for i in range(num_stages)]
+    # direction_points = [origin] + direction_points
+
+    # vec_dir = fit_quadratic_and_tangent(direction_points)
+
+    # alpha_new = np.arctan2(vec_dir[1], vec_dir[0])
+    # heading_point_2d = origin + r * np.array([np.cos(alpha_new), np.sin(alpha_new)])
+    # #print("New Heading: ",alpha_new, "Forward:",alpha)
+    # best_heading = ((alpha_new - alpha + np.pi) % (2 * np.pi)) - np.pi
+
+    # heading_obj = Object(
+    #         label="heading",
+    #         p_center= None,
+    #         depth=r,  # Use z from the local frame
+    #         box=None,
+    #     )
+    # heading_obj.world_pose = np.array([heading_point_2d[0], head_transform[1, 3] -1.6 , heading_point_2d[1]])
+
+    # return best_heading, [heading_obj]
 
 def find_heading(object_buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages):
     
@@ -634,16 +733,16 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
             if overlap < min_overlap:
                 min_overlap = overlap
                 best_point = point_prime
-                best_alpha = alpha_prime if alpha_prime*direction < np.pi else alpha_prime - np.pi*direction
+                best_alpha = alpha_prime
                 best_sample = i
 
             # If collision-free, return immediately
             if collision_free:
                 #print(f"Stage: {stage_index}, angle: {best_alpha}, sample num: {i}")
-                return (stage_index, best_point,best_sample)
+                return (stage_index, best_point,best_sample, best_alpha)
             
         # If no collision-free heading is found, return the best_alpha (least overlap)
-        return (stage_index, best_point, best_sample)
+        return (stage_index, best_point, best_sample, best_alpha)
 
     # Use ThreadPoolExecutor for parallel execution
     best_points = [None] * num_stages * 2
@@ -656,30 +755,22 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
         ]
         # Collect results as they complete (plus: even, minus: odd)
         for future in as_completed(futures):
-            stage_index, best_point, best_sample = future.result()
-            best_points[stage_index] = (best_point , best_sample)
+            stage_index, best_point, best_sample, best_angle = future.result()
+            best_points[stage_index] = (best_point , best_sample, best_angle)
+    
+    
+    heading_point_2d = origin + r * np.array([np.cos(alpha), np.sin(alpha)])
+    heading_angle = np.pi
+    # Get max angle
+    for (point, _ , alpha_prime) in best_points:
 
-    # Fit a quadratic function to the best points - direction must be maintained
-    direction = 1.0
-    tolerance = 1e-6
-    diff = 0.0
-    i = 0
-    while diff < tolerance:
-        diff = best_points[i][1] - best_points[i+1][1]
-        i +=1
-        if i == num_stages: break
-    if abs(diff) > tolerance: 
-        direction = diff / abs(diff) 
+        if heading_angle > abs(alpha_prime-alpha):
+            heading_point_2d = origin + 2 * r * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
+            heading_angle = alpha_prime-alpha
 
-    direction_points = [best_points[2 * i + int((1 - direction) / 2)][0] for i in range(num_stages)]
-    direction_points = [origin] + direction_points
 
-    vec_dir = fit_quadratic_and_tangent(direction_points)
-
-    alpha_new = np.arctan2(vec_dir[1], vec_dir[0])
-    heading_point_2d = origin + r * np.array([np.cos(alpha_new), np.sin(alpha_new)])
     #print("New Heading: ",alpha_new, "Forward:",alpha)
-    best_heading = ((alpha_new - alpha + np.pi) % (2 * np.pi)) - np.pi
+    best_heading = ((heading_angle + np.pi) % (2 * np.pi)) - np.pi
 
     heading_obj = Object(
             label="heading",
@@ -687,7 +778,7 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
             depth=r,  # Use z from the local frame
             box=None,
         )
-    heading_obj.world_pose = np.array([heading_point_2d[0], head_transform[2, 3], heading_point_2d[1]])
+    heading_obj.world_pose = np.array([heading_point_2d[0], head_transform[1, 3] - 1.6 , heading_point_2d[1]])
 
     return best_heading, [heading_obj]
 

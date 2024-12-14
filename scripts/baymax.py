@@ -21,12 +21,12 @@ google_maps_client = GoogleMapsClient(args_api_key=args_cli.MAPS_API_KEY)
 
 @flask_server.route('/initialize_streams', methods=['GET'])
 def init_streams():
-    app.start()
+    #app.start()
     return jsonify({"result" : "Streams Initialized"})
 
 @flask_server.route('/stop_streams', methods=['GET'])
 def stop_streams():
-    app.cleanup()
+    #app.cleanup()
     return jsonify({"result" : "Streams cleaed up"})
 
 @flask_server.route('/calibrate_detector', methods=['GET'])
@@ -72,29 +72,28 @@ def get_scene_description(frame, detected_objects=None, user_prompt="Describe"):
         print(f"Gemini description error: {str(e)}")
         return None
     
+# @flask_server.route('/collision', methods=['GET'])
+# def collision_event():
+#     # make a short pause
+    
+#     try:
+#          # Run detector and capture objects
+#         print("Request from unity app arrived to the flask server!")
+#         floor_detected, objects, _, _ = app.run_collision_cycle()
+#         print("Detector ran successfully")
+#         if floor_detected:
+#             print("floor")
+#             return objects_to_json_collisions(objects)
+#         else:
+#             print("No floor")
+#             return ("", 204)
+#     except Exception as e:
+#         print("Detector Failed:", e)
+#         return ("", 204)
+    
 @flask_server.route('/collision', methods=['GET'])
-def collision_event():
+def collision_heading():
     # make a short pause
-    
-    try:
-         # Run detector and capture objects
-        print("Request from unity app arrived to the flask server!")
-        floor_detected, objects, _, _ = app.run_collision_cycle()
-        print("Detector ran successfully")
-        if floor_detected:
-            print("floor")
-            return objects_to_json_collisions(objects)
-        else:
-            print("No floor")
-            return ("", 204)
-    except Exception as e:
-        print("Detector Failed:", e)
-        return ("", 204)
-    
-@flask_server.route('/heading', methods=['GET'])
-def collision_event():
-    # make a short pause
-    
     try:
          # Run detector and capture objects
         print("Request from unity app arrived to the flask server!")
@@ -102,10 +101,17 @@ def collision_event():
         print("Detector ran successfully")
         if floor_detected:
             print("floor")
-            return objects_to_json_collisions(heading_obj + objects)
+            if len(heading_obj + objects) == 0:
+                return ("", 204)
+            return_json = {"heading":objects_to_json_collisions(heading_obj),
+                           "obstacles":objects_to_json_collisions(objects)}
+            return jsonify(return_json)
         else:
             print("No floor")
-            return ("", 204)
+            if len(objects) == 0:
+                return ("", 204)
+            return_json = {"obstacles":objects_to_json_collisions(objects)}
+            return jsonify(return_json)
     except Exception as e:
         print("Detector Failed:", e)
         return ("", 204)
@@ -120,15 +126,14 @@ def handle_speech():
     speech_text = request.form.get('speechText')
     if not speech_text:
         return jsonify({'response': 'No speech text provided'})
-
     try:
         print("Request from unity app arrived to the flask server!")
-        app.start()
+        #app.start()
         objects = app.run_detection_cycle()
         gemini_description = None
         if app.latest_frame is not None:
             gemini_description = get_scene_description(app.latest_frame, objects, speech_text)
-        app.cleanup()
+        #app.cleanup()
         return jsonify({'response': gemini_description})
 
     except Exception as e:
@@ -214,7 +219,7 @@ def compare_gps():
 
 if __name__ == '__main__':
     # Start the Processor -----------------------------------------------------
-    #app.start()  # TODO:Remove here and call init function
+    app.start()  # TODO:Remove here and call init function
     try:
         flask_server.run(host="0.0.0.0", port=6000, debug=False)
     finally:

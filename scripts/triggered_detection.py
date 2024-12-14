@@ -47,10 +47,10 @@ MIN_POINTS = 50
 DBSCAN_EPS = 0.25
 
 # Heading settings
-HEADING_RADIUS = 1.5
+HEADING_RADIUS = 1.
 SAFETY_RADIUS = 0.5
 NUM_SAMPLES = 10
-NUM_STAGES = 3
+NUM_STAGES = 1
 
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
@@ -506,6 +506,8 @@ class HoloLensDetection:
         unity_global_pcd.transform(unity_global_pose)
         calibrated_global_pcd.transform(calibrated_global_pose)
 
+        print("Head pose: ",unity_global_pose[:3,3])
+
         # For debug
         colors = np.full((len(unity_global_pcd.points), 3), [0, 0, 0], dtype=float)  # Base color: black
 
@@ -531,7 +533,7 @@ class HoloLensDetection:
             colors[non_floor_mask,:] = filtered_colors  # Update non-floor colors with clustering results
             current_time = time.time()
             # Bounding boxes in global frame - Using ORIGINAL global pose
-            obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,unity_global_pcd,ds_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(unity_global_pose[:3,3]),timestamp=current_time)
+            obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,unity_global_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(unity_global_pose[:3,3]),timestamp=current_time)
         
         # Compute heading - Using Unity Frame  
         heading_angle, heading_obj = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
@@ -552,11 +554,11 @@ class HoloLensDetection:
             self.heading_sphere.translate(heading_vis_point)  # Move the sphere to the heading_point
             self.heading_sphere.paint_uniform_color([1, 0, 0])  # Paint the sphere red for visibility
 
-            if self.first_heading:
-                self.vis.add_geometry(self.heading_sphere)
-                self.heading_added = True
-            else:
-                self.vis.update_geometry(self.heading_sphere)
+            # if self.first_heading:
+            #     self.vis.add_geometry(self.heading_sphere)
+            #     self.heading_added = True
+            # else:
+            #     self.vis.update_geometry(self.heading_sphere)
 
             if self.first_pcd:
                 self.vis.add_geometry(self.pcd)
@@ -594,7 +596,7 @@ class HoloLensDetection:
             print(f"Cleanup error: {str(e)}")
 
 if __name__ == "__main__":
-    detector = HoloLensDetection(IP_ADDRESS="192.168.1.245",visuals=True)
+    detector = HoloLensDetection(IP_ADDRESS="192.168.0.130",visuals=True)
     detector.start()
 
     # print("Calibrating...")
