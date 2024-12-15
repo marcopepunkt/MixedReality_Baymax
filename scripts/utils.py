@@ -19,6 +19,9 @@ MAX_SIMILARITY_DISTANCE = 0.25
 MIN_COUNT = 5
 MAX_TIME = 1  # seconds
 
+# Heading buffer settings
+MAX_HEADING_COUNT = 3
+
 
 # Most of these are useless
 classes = [
@@ -155,6 +158,23 @@ class Object_Buffer:
         # Update buffer with the MAX_OBJECTS closest candidates
         max_objects = min(len(filtered_candidates),MAX_OBJECTS)
         self.buffer = [candidate.object for candidate in filtered_candidates[:max_objects]]
+
+class Heading_Buffer:
+    def __init__(self):
+        self.point_buffer = []
+        self.angle_buffer = []
+        self.heading = None
+        self.angle = None
+    def update(self, new_heading, new_angle):
+
+        self.point_buffer.append(new_heading)
+        self.point_buffer = self.point_buffer[-MAX_HEADING_COUNT:]
+
+        self.angle_buffer.append(new_angle)
+        self.angle_buffer = self.angle_buffer[-MAX_HEADING_COUNT:]
+
+        self.heading = np.mean(self.point_buffer, axis=0)
+        self.angle = np.mean(self.angle_buffer, axis=0)
 
 def objects_to_json(objects: List[Object]):
     if len(objects) == 0: # no objects detected, just send description to unity
@@ -693,11 +713,9 @@ def process_bounding_boxes(object_buffer:Object_Buffer,floor_detected,global_pcd
 
     # return best_heading, [heading_obj]
 
-def find_heading(object_buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages):
+def find_heading(object_buffer: Object_Buffer, heading_buffer: Heading_Buffer, head_transform, heading_radius, safety_radius, num_samples, num_stages, sound_distance_multiplier):
     
     num_samples = int(num_samples)
-    r = float(heading_radius)
-
     origin = np.array([head_transform[0, 3], head_transform[2, 3]])
     vec_dir = np.array([head_transform[0, 2], head_transform[2, 2]])
     alpha = np.arctan2(vec_dir[1], vec_dir[0]) # Angle with respect to X-Axis in range [-pi,pi]
@@ -759,26 +777,42 @@ def find_heading(object_buffer, head_transform, heading_radius, safety_radius, n
             best_points[stage_index] = (best_point , best_sample, best_angle)
     
     
-    heading_point_2d = origin + r * np.array([np.cos(alpha), np.sin(alpha)])
-    heading_angle = np.pi
+    heading_point_2d = origin + sound_distance_multiplier * heading_radius * np.array([np.cos(alpha), np.sin(alpha)])
+    #heading_angle = np.pi
+    heading_angle = 0.0
     # Get max angle
-    for (point, _ , alpha_prime) in best_points:
+    i = 0
+    while i < num_stages:
+        _ , sample_plus , alpha_plus = best_points[i]
+        _ , sample_minus , alpha_minus = best_points[i+1]
 
-        if heading_angle > abs(alpha_prime-alpha):
-            heading_point_2d = origin + 2 * r * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
-            heading_angle = alpha_prime-alpha
+        if sample_plus <= sample_minus:
+            if heading_angle < abs(alpha_plus - alpha):
+                heading_point_2d = origin + sound_distance_multiplier * heading_radius * np.array([np.cos(alpha_plus), np.sin(alpha_plus)])
+                heading_angle = abs(alpha_plus - alpha)
+        else:
+            if heading_angle < abs(alpha_minus - alpha):
+                heading_point_2d = origin + sound_distance_multiplier * heading_radius * np.array([np.cos(alpha_minus), np.sin(alpha_minus)])
+                heading_angle = abs(alpha_minus - alpha)
+        i += 1
 
+    # for (point, _ , alpha_prime) in best_points:
 
-    #print("New Heading: ",alpha_new, "Forward:",alpha)
-    best_heading = ((heading_angle + np.pi) % (2 * np.pi)) - np.pi
+    #     if heading_angle > abs(alpha_prime-alpha):
+    #         heading_point_2d = origin + 2 * r * np.array([np.cos(alpha_prime), np.sin(alpha_prime)])
+    #         heading_angle = alpha_prime-alpha
+
+    heading_world_pose = np.array([heading_point_2d[0], head_transform[1, 3] - 1.6 , heading_point_2d[1]])
+    heading_angle = ((heading_angle + np.pi) % (2 * np.pi)) - np.pi
+    heading_buffer.update(heading_world_pose,heading_angle)
 
     heading_obj = Object(
             label="heading",
             p_center= None,
-            depth=r,  # Use z from the local frame
+            depth=heading_radius,  # Use z from the local frame
             box=None,
         )
-    heading_obj.world_pose = np.array([heading_point_2d[0], head_transform[1, 3] - 1.6 , heading_point_2d[1]])
+    heading_obj.world_pose = heading_buffer.heading
 
-    return best_heading, [heading_obj]
+    return heading_buffer.angle, [heading_obj]
 

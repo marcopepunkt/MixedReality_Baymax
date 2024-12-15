@@ -47,10 +47,11 @@ MIN_POINTS = 50
 DBSCAN_EPS = 0.25
 
 # Heading settings
-HEADING_RADIUS = 1.
+HEADING_RADIUS = 1.5
 SAFETY_RADIUS = 0.5
 NUM_SAMPLES = 10
-NUM_STAGES = 1
+NUM_STAGES = 2
+SOUND_DISTANCE_MULTIPLIER = 2.0
 
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
@@ -117,6 +118,8 @@ class HoloLensDetection:
         
         # Obstacle buffer
         self.obstacle_buffer = utils.Object_Buffer()
+        # Heading buffer
+        self.heading_buffer = utils.Heading_Buffer()
 
 
     def init_streams(self):
@@ -536,7 +539,7 @@ class HoloLensDetection:
             obstacles = utils.process_bounding_boxes(self.obstacle_buffer,floor_detected,unity_global_pcd,cluster_labels,non_floor_mask,min_points=MIN_POINTS,global_pose=np.array(unity_global_pose[:3,3]),timestamp=current_time)
         
         # Compute heading - Using Unity Frame  
-        heading_angle, heading_obj = utils.find_heading(object_buffer=self.obstacle_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES)
+        heading_angle, heading_obj = utils.find_heading(object_buffer=self.obstacle_buffer,heading_buffer=self.heading_buffer,head_transform=unity_global_pose,heading_radius=HEADING_RADIUS,safety_radius=SAFETY_RADIUS,num_samples=NUM_SAMPLES, num_stages=NUM_STAGES, sound_distance_multiplier=SOUND_DISTANCE_MULTIPLIER)
 
         # Update rendering if visuals are enabled
         if self.visuals:
