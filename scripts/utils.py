@@ -12,15 +12,15 @@ from sklearn.cluster import DBSCAN
 import open3d as o3d
 
 # Obstacle Buffer settings
-MAX_RADIUS = 3
-MAX_OBJECTS = 20
-MAX_CANDIDATE_OBJECTS = 40
+MAX_RADIUS = 5
+MAX_OBJECTS = 10
+MAX_CANDIDATE_OBJECTS = 30
 MAX_SIMILARITY_DISTANCE = 0.25
-MIN_COUNT = 5
-MAX_TIME = 1  # seconds
+MIN_COUNT = 1
+MAX_TIME = 2  # seconds
 
 # Heading buffer settings
-MAX_HEADING_COUNT = 3
+MAX_HEADING_COUNT = 5
 
 
 # Most of these are useless
@@ -157,7 +157,7 @@ class Object_Buffer:
         
         # Update buffer with the MAX_OBJECTS closest candidates
         max_objects = min(len(filtered_candidates),MAX_OBJECTS)
-        self.buffer = [candidate.object for candidate in filtered_candidates[:max_objects]]
+        self.buffer = [candidate.object for candidate in filtered_candidates[:max_objects] if candidate.count > MIN_COUNT]
 
 class Heading_Buffer:
     def __init__(self):

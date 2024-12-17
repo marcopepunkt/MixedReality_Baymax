@@ -128,8 +128,10 @@ def handle_speech():
         return jsonify({'response': 'No speech text provided'})
     try:
         print("Request from unity app arrived to the flask server!")
-        #app.start()
-        objects = app.run_detection_cycle()
+        for _ in range(50):
+            objects = app.run_detection_cycle()
+            if app.latest_frame.any(): break
+
         gemini_description = None
         if app.latest_frame is not None:
             gemini_description = get_scene_description(app.latest_frame, objects, speech_text)

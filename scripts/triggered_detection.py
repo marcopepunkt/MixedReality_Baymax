@@ -48,10 +48,10 @@ DBSCAN_EPS = 0.25
 
 # Heading settings
 HEADING_RADIUS = 1.5
-SAFETY_RADIUS = 0.5
-NUM_SAMPLES = 10
-NUM_STAGES = 2
-SOUND_DISTANCE_MULTIPLIER = 2.0
+SAFETY_RADIUS = 0.75
+NUM_SAMPLES = 5
+NUM_STAGES = 4
+SOUND_DISTANCE_MULTIPLIER = 1.5
 
 # Colors for visualization
 COLORS = np.random.randint(0, 255, size=(len(utils.classes), 3), dtype=np.uint8)
