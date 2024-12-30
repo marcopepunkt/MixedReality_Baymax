@@ -13,7 +13,10 @@ By integrating real-time object detection, spatial audio and navigation features
 Examples and an instruction for usage can be found in our demo video.
 
 ## Set-up 
-1. Build our unity app from https://github.com/marcopepunkt/MixedReality_Baymax_UnityApp
-2. Clone this repository on your PC (recommanded system: windows) and install dependencies from environment.yaml
-3. Connect Hololens and your PC to the same network and set the IP address
-4. Set API key in baymax.py and run the script
+1. Build our unity app from https://github.com/marcopepunkt/MixedReality_Baymax_UnityApp . We used Unity version 2020.3.42f1.
+2. Clone this repository on your PC (recommended system: windows) and install dependencies from environment.yaml
+3. Connect Hololens and your PC to the same network. set the IP address of the hololens in baymax.py
+4. Set API keys (gemini, google maps) in baymax.py and run the script
+5. after starting the unity app on hololens, say "Configure" to open a window where you insert the IP address of your PC, in the format "http::172.20.10.2:5000" (5000 is the port name of the hololens-PC connection)
+6. to be able to use the google maps feature, follow the instructions on the unity app repository readme
+7. now, you can make queries to baymax using the voice commands on welcome page (or on the unity app repository readme)
