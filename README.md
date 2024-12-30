@@ -21,7 +21,7 @@ Examples and an instruction for usage can be found in our demo video.
 5. to be able to use the google maps feature, follow the setup instructions in section Google maps below
 6. start the unity app on hololens. say "Configure" to open a window where you insert the IP address of your PC, in the format "http://172.20.10.2:5000" (172.20.10.2 is the IP of the PC, 5000 is the port number of the hololens-PC connection in `scripts/baymax.py`. 5000 for windows OS, 6000 for MacOS)
 7. run `run.sh` on your PC
-8. after the PC server has started and the stream to hololens is ready, you can make queries to baymax using the voice commands described below
+8. after the PC server has started and the stream to hololens is initialized, you can make queries to baymax using the voice commands described below
 
 ## Voice commands
 - "Configure" - To open UI to change IP 
