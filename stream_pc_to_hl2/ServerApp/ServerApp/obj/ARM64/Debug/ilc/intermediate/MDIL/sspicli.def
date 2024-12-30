@@ -1,4 +1,0 @@
-LIBRARY sspicli.dll
-EXPORTS
-   LsaGetLogonSessionData
-   LsaFreeReturnBuffer

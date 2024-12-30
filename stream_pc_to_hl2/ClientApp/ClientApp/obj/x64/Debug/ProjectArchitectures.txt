@@ -1,1 +1,0 @@
-C:\Users\defne\Desktop\ClientApp\ClientApp\ClientApp.csproj;x64
