@@ -44,7 +44,6 @@ Examples and an instruction for usage can be found in our demo video.
 7. now you don't have to run packet sender app again when running baymax.py. just enable GPSIP Lite on the phone app each time you need gps coordinates.
 
 ### make requests to google maps while runnning the app:
-1. say "hey maps"
-2. say "take me to ... " -> provides instructions like tram line, time, departure stop
+1. say "hey baymax, take me to ..." -> provides instructions like tram line, time, departure stop
 3. after hearing "Would you like additional instructions to first tram stop?", if you say "yes", it will give you the first walking instruction to the first tram stop and start receiving your gps coordinates from the phone. this feature is under testing/development and at the moment doesn't guide the user to final destination.
 
