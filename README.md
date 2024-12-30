@@ -12,11 +12,37 @@ By integrating real-time object detection, spatial audio and navigation features
 3. Navigation
 Examples and an instruction for usage can be found in our demo video.
 
-## Set-up 
+## Instructions to build and run
 1. Build our unity app from https://github.com/marcopepunkt/MixedReality_Baymax_UnityApp . We used Unity version 2020.3.42f1.
 2. Clone this repository on your PC (recommended system: windows) and install dependencies from environment.yaml
 3. Connect Hololens and your PC to the same network. set the IP address of the hololens in baymax.py
 4. Set API keys (gemini, google maps) in baymax.py and run the script
-5. after starting the unity app on hololens, say "Configure" to open a window where you insert the IP address of your PC, in the format "http::172.20.10.2:5000" (5000 is the port name of the hololens-PC connection)
-6. to be able to use the google maps feature, follow the instructions on the unity app repository readme
-7. now, you can make queries to baymax using the voice commands on welcome page (or on the unity app repository readme)
+5. to be able to use the google maps feature, follow the setup instructions in section Google maps below
+6. after starting the unity app on hololens, say "Configure" to open a window where you insert the IP address of your PC, in the format "http://172.20.10.2:5000" (172.20.10.2 is the IP of the PC, 5000 is the port name of the hololens-PC connection)
+7. now, you can make queries to baymax using the voice commands described on welcome page (or below)
+
+## Voice commands
+- "Configure" - To open UI to change IP 
+- "Start" - Start Obstacle Avoidance
+- "Stop" - End Obstacle Avoidance
+- "Hey Baymax" - Activates scene description mode. After the ring, ask anything about the scene in front of you.
+- "Abort" - Deactivates scene description mode.
+- "Hey Baymax, take me to ... " - Activates google maps mode. Provide a location to get public transportation directions there.
+- "Stop" / "Abort" - Deactivates google maps mode.
+
+## Google Maps
+
+### set up gps connection between phone and pc:
+1. install GPS2IP Lite app on phone [GPS2IP](https://www.google.com/url?sa=t&source=web&rct=j&opi=89978449&url=https://apps.apple.com/us/app/gps2ip-lite/id1562823492&ved=2ahUKEwjtvvLtoKKKAxXThv0HHX4zIIwQFnoECBcQAQ&usg=AOvVaw3MjoYW7jSYqW38cMqiVWUS).
+2. inside the app: go to Settings > Connection Method, choose TCP Push
+3. click on TCP Push and write the IP Address of your PC. The port number should be 11123 (should be the same on the app and on `receive_gps.py`)
+4. in Settings > Network Selection, choose Cellular IP if you are connecting over your mobile data
+5. on PC: download [Packet Sender](http://packetsender.com/)
+6. inside the packet sender app; go to settings and enable TCP server. write down TCP server port (11123). instructions showing UI here under [Test that we can receive GPS2IP data](https://capsicumdreams.com/gps2ip/tcpPushMode.php). on the phone app, enable GPS2IP Lite on top of the main screen and follow the instructions from last url to check you are receiving packets on packet sender.
+7. now you don't have to run packet sender app again when running baymax.py. just enable GPSIP Lite on the phone app each time you need gps coordinates.
+
+### make requests to google maps while runnning the app:
+1. say "hey maps"
+2. say "take me to ... " -> provides instructions like tram line, time, departure stop
+3. after hearing "Would you like additional instructions to first tram stop?", if you say "yes", it will give you the first walking instruction to the first tram stop and start receiving your gps coordinates from the phone. this feature is under testing/development and at the moment doesn't guide the user to final destination.
+
