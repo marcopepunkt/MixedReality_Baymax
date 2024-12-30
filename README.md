@@ -17,10 +17,11 @@ Examples and an instruction for usage can be found in our demo video.
 1. Build our unity app from https://github.com/marcopepunkt/MixedReality_Baymax_UnityApp . We used Unity version 2020.3.42f1.
 2. Clone this repository on your PC (recommended system: windows or MacOS) and install dependencies from `scripts/environment.yaml`
 3. Connect Hololens and your PC to the same network. set the IP address of the hololens in `run.sh`. if you're using windows, you need to disable firewalls on your PC to be connected to the HoloLens over wifi.
-4. Set API keys (gemini, google maps) in `run.sh` and run it
+4. Set API keys (gemini, google maps) in `run.sh`
 5. to be able to use the google maps feature, follow the setup instructions in section Google maps below
-6. after starting the unity app on hololens, say "Configure" to open a window where you insert the IP address of your PC, in the format "http://172.20.10.2:5000" (172.20.10.2 is the IP of the PC, 5000 is the port number of the hololens-PC connection in `scripts/baymax.py`. 5000 for windows OS, 6000 for MacOS)
-7. now, you can make queries to baymax using the voice commands described on welcome page (or below)
+6. start the unity app on hololens. say "Configure" to open a window where you insert the IP address of your PC, in the format "http://172.20.10.2:5000" (172.20.10.2 is the IP of the PC, 5000 is the port number of the hololens-PC connection in `scripts/baymax.py`. 5000 for windows OS, 6000 for MacOS)
+7. run `run.sh` on your PC
+8. after the PC server has started and the stream to hololens is ready, you can make queries to baymax using the voice commands described below
 
 ## Voice commands
 - "Configure" - To open UI to change IP 
