@@ -9,7 +9,8 @@ A demo video is avaiable on https://youtu.be/bi-2wldo6RU. More implementation an
 By integrating real-time object detection, spatial audio and navigation features, our app aims to provide a safer and more independent experience in navigating unfamiliar environments with 3 functions:
 1. Scene description
 2. Obstacle avoidance
-3. Navigation
+3. Public transit directions
+
 Examples and an instruction for usage can be found in our demo video.
 
 ## Instructions to build and run
